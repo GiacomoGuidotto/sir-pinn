@@ -31,20 +31,3 @@ you can do so with:
 ```bash
 conda env export --no-builds | grep -v "^prefix: " > environment.yaml
 ```
-
-## For JetBrain IDEs
-
-You can import the code style settings from the `docs/code_style.xml` file. To
-do this, go to `File -> Settings -> Editor -> Code Style -> Python` and click on
-the gear icon. Then, select `Import Scheme -> Intellij IDEA code style XML` and
-select the file.
-
-![import_example](docs/img.png)
-
-## TODO
-
-- Find an activation function that constraints the output to be inside a range:
-  e.g: beta needs to be positive and with an upper bound around 10 * 0.2 (r0 *
-  delta)
-- Create a twin model with variable constraints
-- Rescale population correctly, and using and activation, not a scaling constant
