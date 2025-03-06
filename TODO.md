@@ -5,3 +5,6 @@
   delta)
 - Create a twin model with variable constraints
 - Rescale population correctly, and using and activation, not a scaling constant
+
+patience = | dataset | / batch_size
+data * 0 = 0
