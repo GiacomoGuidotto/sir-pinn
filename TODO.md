@@ -8,3 +8,7 @@
 
 patience = | dataset | / batch_size
 data * 0 = 0
+
+### TO ASK
+
+- t_sample at every iteration or only at the start or at each batch?
