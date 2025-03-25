@@ -1,9 +1,9 @@
 # EpiPINN
 
-A Physics-Informed Neural Network approach for compartmental epidemiological
-models.
+A Physics-Informed Neural Network approach for an inverse problem in
+compartmental epidemiological models.
 
-Powered by the [DeepXDE](https://deepxde.readthedocs.io/en/stable/) library.
+Written in Pytorch.
 
 ## Getting Started
 
