@@ -1,4 +1,4 @@
-name: pinn
+name: EpiPINN
 channels:
   - pytorch
   - conda-forge
