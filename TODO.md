@@ -1,6 +1,7 @@
 ## TODO
 
-after epoch:
-
-- compute total L_pde, L_data and loss and plot it
-- save model parameters and compute ||p_old - p_new||_2 and plot it
+- test_train_split on collocation points
+    - compute residual on test split and plot it
+- test_train_split on obs, 80/20, evenly spaced?
+- stopping criteria on diff between averages of losses
+    - params: avg_loss_interval, avg_loss_diff_interval, threshold
