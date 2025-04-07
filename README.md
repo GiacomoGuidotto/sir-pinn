@@ -1,4 +1,4 @@
-# EpiPINN
+# SIR-PINN
 
 A Physics-Informed Neural Network approach for an inverse problem in a SIR
 epidemiological model.
