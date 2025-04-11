@@ -20,24 +20,32 @@
 # ## Configuration
 
 # %%
+# std
+import os
+import subprocess
 from dataclasses import dataclass, field
-from IPython.display import display, HTML
-from lightning import Callback
-from lightning.pytorch import Trainer, LightningModule
-from lightning.pytorch.callbacks import LearningRateMonitor, EarlyStopping
-from lightning.pytorch.loggers import TensorBoardLogger, CSVLogger
+from typing import List, Tuple
+
+# third-party 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from scipy.integrate import odeint
-from sklearn.metrics import mean_absolute_percentage_error
 import seaborn as sns
 import torch
 import torch.nn as nn
+from IPython.display import display, HTML
+from lightning import Callback
+from lightning.pytorch import Trainer, LightningModule
+from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint,TQDMProgressBar
+from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
+from scipy.integrate import odeint
+from sklearn.metrics import mean_absolute_percentage_error
 from torch.utils.data import Dataset, DataLoader
-from typing import List, Tuple
 
 sns.set_theme(style="darkgrid")
+
+log_dir = "logs/"
+os.makedirs(log_dir, exist_ok=True)
 
 # %% [markdown]
 # ## Module's components
@@ -79,6 +87,17 @@ activation_map = {
     'softplus': nn.Softplus(),
     'identity': nn.Identity()
 }
+
+class ProgressBar(TQDMProgressBar):
+    def get_metrics(self, *args, **kwargs):
+        items = super().get_metrics(*args, **kwargs)
+        items.pop("v_num", None)
+        if "train/total_loss" in items:
+            items["train/total_loss"] = f"{items['train/total_loss']:.2e}"
+        if "train/beta" in items:
+            items["train/beta"] = f"{items['train/beta']:.3f}"
+        return items
+        
 
 # %% [markdown]
 # ## Module's configuration
@@ -338,14 +357,15 @@ class SIRPINN(LightningModule):
 # ## Training definition
 
 # %%
-def train_sir_pinn(t_obs: np.ndarray, i_obs: np.ndarray, config: SIRConfig) -> SIRPINN:
+def train_sir_pinn(t_obs: np.ndarray, i_obs: np.ndarray, config: SIRConfig, skip: bool = False) -> SIRPINN:
     """
     Train a SIR PINN model using the provided observations.
     
     Args:
         t_obs: Observation time points
         i_obs: Observed infected proportions
-        override_config: Configuration object (optional)
+        config: Configuration object
+        skip: If True, skip training and return the best model from checkpoints
         
     Returns:
         Trained PINN model
@@ -369,6 +389,15 @@ def train_sir_pinn(t_obs: np.ndarray, i_obs: np.ndarray, config: SIRConfig) -> S
     
     model = SIRPINN(config)
 
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=f"{log_dir}/checkpoints", # Directory to save checkpoints
+        filename='sir-pinn-{epoch:02d}-{train/total_loss:.2e}',
+        save_top_k=1,               # Save only the best model
+        monitor='train/total_loss', # Metric to monitor
+        mode='min',                 # Mode for the monitored metric (minimize loss)
+        save_last=True              # Also save the last epoch's checkpoint
+    )
+
     callbacks: list[Callback] = [
         EarlyStopping(
             monitor='train/total_loss',
@@ -377,12 +406,16 @@ def train_sir_pinn(t_obs: np.ndarray, i_obs: np.ndarray, config: SIRConfig) -> S
         ),
         LearningRateMonitor(
             logging_interval='epoch',
-        )
+        ),
+        ProgressBar(
+            refresh_rate=10
+        ),
+        checkpoint_callback
     ]
 
     loggers = [
-        TensorBoardLogger(save_dir="logs/tensorboard", name=""),
-        CSVLogger(save_dir="logs/csv", name="")
+        TensorBoardLogger(save_dir=f"{log_dir}/tensorboard", name=""),
+        CSVLogger(save_dir=f"{log_dir}/csv", name=""),
     ]
 
     trainer = Trainer(
@@ -392,7 +425,13 @@ def train_sir_pinn(t_obs: np.ndarray, i_obs: np.ndarray, config: SIRConfig) -> S
         logger=loggers,
     )
     
-    trainer.fit(model, data_loader)
+    if not skip:
+        trainer.fit(model, data_loader)
+
+    print(f"loading {checkpoint_callback.best_model_path}...")
+    model = SIRPINN.load_from_checkpoint(
+        checkpoint_callback.best_model_path
+    )
     
     return model
 
@@ -403,6 +442,8 @@ def train_sir_pinn(t_obs: np.ndarray, i_obs: np.ndarray, config: SIRConfig) -> S
 
 # %%
 if __name__ == '__main__':
+    subprocess.Popen(["tensorboard", "--logdir", f"{log_dir}/tensorboard"])
+
     config = SIRConfig(
         learning_rate=1e-4,
         scheduler_patience=80
@@ -428,7 +469,6 @@ if __name__ == '__main__':
 
     i_obs = np.random.poisson(i_true)
 
-    # %%
     model = train_sir_pinn(t, i_obs, config)
 
     # %% [markdown]
