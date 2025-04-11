@@ -1,11 +1,11 @@
 # %% [markdown]
 # # SIR model: inverse problem
 # ## A PINN approach
-# 
+#
 # In this notebook, we will solve the inverse problem of the SIR model using a Physics-Informed Neural Network (PINN). The goal is to estimate the infection rate $\beta$ from the observed data of the infected population. To do this, we will train a PINN model, where we compute the residuals of the differential equation system with initial conditions and the data loss simultaneously.
-# 
+#
 # The SIR model is governed by the following set of ordinary differential equations (ODEs):
-# 
+#
 # $$
 # \begin{cases}
 # \frac{dS}{dt} &= -\frac{\beta}{N} I S, \\
@@ -13,7 +13,7 @@
 # \frac{dR}{dt} &= \delta I,
 # \end{cases}
 # $$
-# 
+#
 # where $t \in [0, 90]$ and with the initial conditions $S(0) = N - 1$, $I(0) = 1$, and $R(0) = 0$.
 
 # %% [markdown]
@@ -26,7 +26,7 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import List, Tuple
 
-# third-party 
+# third-party
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -97,7 +97,7 @@ class ProgressBar(TQDMProgressBar):
         if "train/beta" in items:
             items["train/beta"] = f"{items['train/beta']:.3f}"
         return items
-        
+
 
 # %% [markdown]
 # ## Module's configuration
@@ -204,24 +204,24 @@ class SIRDataset(Dataset):
 # %%
 class SIRPINN(LightningModule):
     """Physics-Informed Neural Network for SIR model parameter identification."""
-    
+
     def __init__(self, config: SIRConfig):
         super().__init__()
         self.save_hyperparameters()
         self.config = config
-        
+
         layers_dims = [1] + config.hidden_layers + [1]
         activation = activation_map.get(config.activation)
         output_activation = activation_map.get(config.output_activation)
-        
+
         self.net_S = create_mlp(layers_dims, activation, output_activation)
         self.net_I = create_mlp(layers_dims, activation, output_activation)
-        
+
         self.beta = nn.Parameter(torch.tensor(config.initial_beta, dtype=torch.float32))
-        
+
         self.N = 1.
         self.delta = config.delta
-        
+
         self.loss_fn = nn.MSELoss()
 
         self.t0_tensor = torch.zeros(1, 1, device=self.device, dtype=torch.float32)
@@ -242,9 +242,9 @@ class SIRPINN(LightningModule):
         S = self.net_S(t)
         I = self.net_I(t)
         R = self.N - S - I
-        
+
         return torch.cat([S, I, R], dim=1)
-        
+
     @torch.inference_mode(False)
     def compute_ode_residuals(self, t_tensor: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -259,7 +259,7 @@ class SIRPINN(LightningModule):
         t_tensor.requires_grad_(True)
         S = self.net_S(t_tensor)
         I = self.net_I(t_tensor)
-        
+
         dS_dt = torch.autograd.grad(
             S, t_tensor, grad_outputs=torch.ones_like(S), create_graph=True
         )[0]
@@ -271,7 +271,7 @@ class SIRPINN(LightningModule):
         res_I = dI_dt - self.beta * S * I + self.delta * I
 
         return res_S, res_I
-    
+
     def pde_loss(self, t: torch.Tensor) -> torch.Tensor:
         """Compute PDE residual loss."""
         res_S, res_I = self.compute_ode_residuals(t)
@@ -279,7 +279,7 @@ class SIRPINN(LightningModule):
         loss_I = self.loss_fn(res_I, torch.zeros_like(res_I))
 
         return loss_S + loss_I
-    
+
     def ic_loss(self) -> torch.Tensor:
         """Compute initial condition loss."""
         t0_tensor = self.t0_tensor.to(self.device)
@@ -287,53 +287,53 @@ class SIRPINN(LightningModule):
         ic_pred = self(t0_tensor)
 
         return self.loss_fn(ic_pred, ic_true)
-    
+
     def data_loss(self, t_obs: torch.Tensor, i_obs: torch.Tensor) -> torch.Tensor:
         """Compute data fitting loss."""
         if t_obs.shape[0] == 0:  # No observations in batch
             return torch.tensor(0.0, device=self.device)     
-           
+
         i_pred = self(t_obs)[:, 1].reshape(-1, 1)
         return self.loss_fn(i_pred, i_obs)
-    
+
     def training_step(self, batch):
         t = batch['t']
         is_obs = batch['is_obs']
         i_target = batch['i_target']
-        
+
         t_obs = t[is_obs] if is_obs.any() else torch.zeros((0, 1), device=self.device)
         i_obs = i_target[is_obs] if is_obs.any() else torch.zeros((0, 1), device=self.device)
-        
+
         pde_loss_val = self.pde_loss(t)
         ic_loss_val = self.ic_loss()
         data_loss_val = self.data_loss(t_obs, i_obs)
-        
+
         total_loss = (
             self.config.pde_weight * pde_loss_val +
             self.config.ic_weight * ic_loss_val +
             self.config.data_weight * data_loss_val
         )
-        
+
         self.log('train/pde_loss', pde_loss_val)
         self.log('train/ic_loss', ic_loss_val)
         self.log('train/data_loss', data_loss_val)
         self.log('train/total_loss', total_loss, prog_bar=True)
         self.log('train/beta', self.beta.item(), prog_bar=True)
-        
+
         return total_loss
-    
+
     @torch.no_grad()
     def predict_sir(self, t):
         """Predict SIR values at specified time points."""
         t_tensor = torch.tensor(t, dtype=torch.float32).reshape(-1, 1).to(self.device)
         return self(t_tensor).cpu().numpy() * self.config.N
-    
+
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(
             self.parameters(), 
             lr=self.config.learning_rate
         )
-        
+
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
             mode='min',
@@ -342,7 +342,7 @@ class SIRPINN(LightningModule):
             threshold=self.config.scheduler_threshold,
             min_lr=self.config.scheduler_min_lr
         )
-        
+
         return {
             'optimizer': optimizer,
             'lr_scheduler': {
@@ -356,21 +356,21 @@ class SIRPINN(LightningModule):
 # %% [markdown]
 # ## Training definition
 
+
 # %%
-def train_sir_pinn(t_obs: np.ndarray, i_obs: np.ndarray, config: SIRConfig, skip: bool = False) -> SIRPINN:
+def train_sir_pinn(t_obs: np.ndarray, i_obs: np.ndarray, config: SIRConfig) -> SIRPINN:
     """
     Train a SIR PINN model using the provided observations.
-    
+
     Args:
         t_obs: Observation time points
         i_obs: Observed infected proportions
         config: Configuration object
-        skip: If True, skip training and return the best model from checkpoints
-        
+
     Returns:
         Trained PINN model
     """
-    
+
     dataset = SIRDataset(
         t_obs=t_obs,
         i_obs=i_obs,
@@ -386,7 +386,7 @@ def train_sir_pinn(t_obs: np.ndarray, i_obs: np.ndarray, config: SIRConfig, skip
         num_workers=7,
         persistent_workers=True
     )
-    
+
     model = SIRPINN(config)
 
     checkpoint_callback = ModelCheckpoint(
@@ -424,31 +424,33 @@ def train_sir_pinn(t_obs: np.ndarray, i_obs: np.ndarray, config: SIRConfig, skip
         log_every_n_steps=config.log_every_n_steps,
         logger=loggers,
     )
-    
-    if not skip:
-        trainer.fit(model, data_loader)
+
+    trainer.fit(model, data_loader)
 
     print(f"loading {checkpoint_callback.best_model_path}...")
     model = SIRPINN.load_from_checkpoint(
         checkpoint_callback.best_model_path
     )
-    
+
     return model
 
+
 # %% [markdown]
-# ## Execution 
-# 
-# Generate syntethic data:
+# ## Synthetic data generation
+
 
 # %%
-if __name__ == '__main__':
-    subprocess.Popen(["tensorboard", "--logdir", f"{log_dir}/tensorboard"])
+@dataclass
+class SIRData:
+    """Data structure for SIR model compartments."""
 
-    config = SIRConfig(
-        learning_rate=1e-4,
-        scheduler_patience=80
-    )
+    s: np.ndarray
+    i: np.ndarray
+    r: np.ndarray
 
+
+def generate_sir_data(config: SIRConfig) -> Tuple[np.ndarray, SIRData, np.ndarray]:
+    """Generate synthetic SIR data using ODE integration."""
     def sir(x, _, d, b):
         s, i, _ = x
         l = b * i / config.N
@@ -459,103 +461,106 @@ if __name__ == '__main__':
 
     i0, r0 = config.initial_conditions
     t_start, t_end = config.time_domain
-
     t = np.linspace(t_start, t_end, t_end - t_start + 1)
 
     solution = odeint(sir, [config.N - i0 - r0, i0, r0], t, args=(config.delta, config.beta_true))
-    s_true = solution[:, 0]
-    i_true = solution[:, 1]
-    r_true = solution[:, 2]
+    sir_true = SIRData(*solution.T)
+    i_obs = np.random.poisson(sir_true.i)
 
-    i_obs = np.random.poisson(i_true)
+    return t, sir_true, i_obs
 
-    model = train_sir_pinn(t, i_obs, config)
 
-    # %% [markdown]
-    # ## Evaluation
+# %% [markdown]
+# ## Plotting results
 
-    # %%
-    s_pred, i_pred, r_pred = model.predict_sir(t).T
-    beta_pred = model.beta.item()
 
-    # %% [markdown]
-    # Model predition
-
-    # %%
+# %%
+def plot_sir_results(
+    t: np.ndarray, sir_true: SIRData, sir_pred: SIRData, beta_pred: float
+):
+    """Plot true vs predicted SIR dynamics."""
     plt.figure(figsize=(12, 6))
 
-    sns.lineplot(x=t, y=s_true, label="$S_{\\mathrm{true}}$")
-    sns.lineplot(x=t, y=s_pred, label="$S_{\\mathrm{pred}}$", linestyle="--")
-    sns.lineplot(x=t, y=i_true, label="$I_{\\mathrm{true}}$")
-    sns.lineplot(x=t, y=i_pred, label="$I_{\\mathrm{pred}}$", linestyle="--")
-    sns.lineplot(x=t, y=r_true, label="$R_{\\mathrm{true}}$")
-    sns.lineplot(x=t, y=r_pred, label="$R_{\\mathrm{pred}}$", linestyle="--")
+    sns.lineplot(x=t, y=sir_true.s, label="$S_{\\mathrm{true}}$")
+    sns.lineplot(x=t, y=sir_pred.s, label="$S_{\\mathrm{pred}}$", linestyle="--")
+    sns.lineplot(x=t, y=sir_true.i, label="$I_{\\mathrm{true}}$")
+    sns.lineplot(x=t, y=sir_pred.i, label="$I_{\\mathrm{pred}}$", linestyle="--")
+    sns.lineplot(x=t, y=sir_true.r, label="$R_{\\mathrm{true}}$")
+    sns.lineplot(x=t, y=sir_pred.r, label="$R_{\\mathrm{pred}}$", linestyle="--")
 
-    plt.title('True vs Predicted SIR Dynamics (predicted $\\beta$ = {pred_beta:.4f})', fontsize=14)
-    plt.xlabel('Time (days)', fontsize=12)
-    plt.ylabel('Fraction of Population', fontsize=12)
+    plt.title(f"True vs Predicted SIR Dynamics (predicted $\\beta$ = {beta_pred:.4f})")
+    plt.xlabel("Time (days)")
+    plt.ylabel("Fraction of Population")
     plt.legend()
     plt.tight_layout()
     plt.show()
 
-    # %% [markdown]
-    # Preditions accuracy
 
-    # %%
+# %% [markdown]
+# ## Evaluation
+
+
+# %%
+def evaluate_sir_results(
+    sir_pred: SIRData, sir_true: SIRData, beta_pred: float, beta_true: float
+):
+    """Evaluate model performance metrics."""
+
     def mse(pred, true):
-        """Calculate Mean Squared Error between predicted and true values."""
         return np.mean((pred - true) ** 2)
 
-
     def re(pred, true):
-        """Calculate Relative Error between predicted and true values."""
         return np.linalg.norm(true - pred, 2) / np.linalg.norm(true, 2)
 
-
     def mape(pred, true):
-        """Calculate Mean Absolute Percentage Error between predicted and true values."""
         return mean_absolute_percentage_error(true, pred)
 
+    print("\nModel Performance Metrics:")
+    print("-------------------------")
+    print(f"{'Compartment':<12} {'MSE':<12} {'MAPE (%)':<12} {'RE':<12}")
+    print("-" * 50)
 
-    compartments = ["S", "I", "R"]
-    pred_arrays = [s_pred, i_pred, r_pred]
-    true_arrays = [s_true, i_true, r_true]
+    for comp, pred, true in zip(
+        ["S", "I", "R"],
+        [sir_pred.s, sir_pred.i, sir_pred.r],
+        [sir_true.s, sir_true.i, sir_true.r],
+    ):
+        print(
+            f"{comp:<12} {mse(pred, true):.2e} {mape(pred, true):.2e} {re(pred, true):.2e}"
+        )
 
-    mse_values = [
-    f"{mse(pred, true):.2e}" for pred, true in zip(pred_arrays, true_arrays)
-    ]
-    re_values = [
-    f"{re(pred, true):.2e}" for pred, true in zip(pred_arrays, true_arrays)
-    ]
-    mape_values = [
-    f"{mape(pred, true):.2e}" for pred, true in zip(pred_arrays, true_arrays)
-    ]
+    beta_error = abs(beta_pred - beta_true)
+    beta_error_percent = beta_error / beta_true * 100
 
-    errors = pd.DataFrame(
-    {
-        "Compartment": compartments,
-        "MSE":         mse_values,
-        "MAPE (%)":    mape_values,
-        "RE":          re_values,
-    }
+    print("\nParameter Estimation Results:")
+    print("---------------------------")
+    print(f"Parameter: β")
+    print(f"Predicted Value: {beta_pred:.4f}")
+    print(f"True Value: {beta_true:.4f}")
+    print(f"Absolute Error: {beta_error:.2e}")
+    print(f"Relative Error: {beta_error_percent:.2f}%")
+
+
+# %% [markdown]
+# ## Execution
+
+# %%
+if __name__ == "__main__":
+    subprocess.Popen(
+        ["tensorboard", "--logdir", f"{log_dir}/tensorboard"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
 
-    display(HTML(errors.to_html(index=False)))
-
-    # %%
-    beta_error = abs(beta_pred - config.beta_true)
-    beta_error_percent = beta_error / config.beta_true * 100
-
-    beta_errors = pd.DataFrame(
-    {
-        "Parameter":          ["β"],
-        "Predicted Value":    [f"{beta_pred:.4f}"],
-        "True Value":         [f"{config.beta_true:.4f}"],
-        "Absolute Error":     [f"{beta_error:.2e}"],
-        "Relative Error (%)": [f"{beta_error_percent:.2f}%"],
-    }
+    config = SIRConfig(
+        scheduler_patience=70,
     )
+    t, sir_true, i_obs = generate_sir_data(config)
 
-    display(HTML(beta_errors.to_html(index=False)))
+    model = train_sir_pinn(t, i_obs, config)
 
+    sir_pred = SIRData(*model.predict_sir(t).T)
+    beta_pred = model.beta.item()
 
+    plot_sir_results(t, sir_true, sir_pred, beta_pred)
+    evaluate_sir_results(sir_pred, sir_true, beta_pred, config.beta_true)
