@@ -21,6 +21,7 @@
 
 # %%
 # std
+import argparse
 import os
 import shutil
 import subprocess
@@ -125,6 +126,7 @@ class SIRConfig:
     learning_rate: float = 1e-3
     batch_size: int = 100
     max_epochs: int = 1000
+    gradient_clip_val: float = 1.0
 
     # Scheduler parameters
     scheduler_factor: float = 0.5
@@ -133,12 +135,12 @@ class SIRConfig:
     scheduler_min_lr: float = 1e-6
 
     # Early stopping
-    early_stopping_patience: int = 50
+    early_stopping_patience: int = 250
 
     # Loss weights
-    pde_weight: float = 1.
-    ic_weight: float = 1.
-    data_weight: float = 10.
+    pde_weight: float = 1.0
+    ic_weight: float = 1.0
+    data_weight: float = 1.0
 
     # Dataset parameters
     time_domain: Tuple[int, int] = (0, 90)
@@ -430,6 +432,8 @@ def train_sir_pinn(
         max_epochs=config.max_epochs,
         callbacks=callbacks,
         logger=loggers,
+        log_every_n_steps=1,  # ignored by the on_epoch=True
+        gradient_clip_val=config.gradient_clip_val,
     )
 
     trainer.fit(model, data_loader)
@@ -551,6 +555,13 @@ def evaluate_sir_results(
 
 # %%
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--skip", action="store_true", help="Skip training and load saved model"
+    )
+    args = parser.parse_args()
+    skip_training = args.skip
+
     subprocess.Popen(
         ["tensorboard", "--logdir", f"{log_dir}/tensorboard"],
         stdout=subprocess.DEVNULL,
@@ -558,11 +569,21 @@ if __name__ == "__main__":
     )
 
     config = SIRConfig(
+        # Training parameters
+        learning_rate=5e-4,
+        batch_size=256,
+        # Scheduler parameters
         scheduler_patience=70,
+        # Early stopping
+        # early_stopping_patience=100,
+        # Loss weights
+        pde_weight=2.0,
+        ic_weight=2.0,
+        data_weight=5.0,
     )
     t, sir_true, i_obs = generate_sir_data(config)
 
-    model = train_sir_pinn(t, i_obs, config, skip_training=True)
+    model = train_sir_pinn(t, i_obs, config, skip_training)
 
     sir_pred = SIRData(*model.predict_sir(t).T)
     beta_pred = model.beta.item()
