@@ -570,8 +570,8 @@ if __name__ == "__main__":
 
     config = SIRConfig(
         # Training parameters
-        # learning_rate=5e-4,
         batch_size=256,
+        max_epochs=2000,
         # Scheduler parameters
         scheduler_patience=70,
         scheduler_threshold=0.005,
@@ -582,6 +582,7 @@ if __name__ == "__main__":
         ic_weight=2.0,
         data_weight=5.0,
     )
+
     t, sir_true, i_obs = generate_sir_data(config)
 
     model = train_sir_pinn(t, i_obs, config, skip_training)
