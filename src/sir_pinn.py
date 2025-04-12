@@ -570,12 +570,13 @@ if __name__ == "__main__":
 
     config = SIRConfig(
         # Training parameters
-        learning_rate=5e-4,
+        # learning_rate=5e-4,
         batch_size=256,
         # Scheduler parameters
         scheduler_patience=70,
+        scheduler_threshold=0.005,
         # Early stopping
-        # early_stopping_patience=100,
+        early_stopping_patience=100,
         # Loss weights
         pde_weight=2.0,
         ic_weight=2.0,
