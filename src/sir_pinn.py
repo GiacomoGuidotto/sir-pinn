@@ -22,6 +22,7 @@
 # %%
 # std
 import os
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from typing import List, Tuple
@@ -29,11 +30,9 @@ from typing import List, Tuple
 # third-party
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import seaborn as sns
 import torch
 import torch.nn as nn
-from IPython.display import display, HTML
 from lightning import Callback
 from lightning.pytorch import Trainer, LightningModule
 from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint,TQDMProgressBar
@@ -46,6 +45,7 @@ sns.set_theme(style="darkgrid")
 
 log_dir = "logs/"
 os.makedirs(log_dir, exist_ok=True)
+checkpoints_dir = f"{log_dir}checkpoints/"
 
 # %% [markdown]
 # ## Module's components
@@ -112,40 +112,37 @@ class SIRConfig:
     r0: float = 3.0
     beta_true: float = delta * r0
     initial_beta: float = 0.5
-    
+
     # Neural network architecture
     hidden_layers: List[int] = field(default_factory=lambda: 4 * [50])
     activation: str = 'tanh'
     output_activation: str = 'softplus'
-    
+
     # Initial conditions (I0, R0)
     initial_conditions: List[float] = field(default_factory=lambda: [1., 0.])
-    
+
     # Training parameters
     learning_rate: float = 1e-3
     batch_size: int = 100
     max_epochs: int = 1000
-    
+
     # Scheduler parameters
     scheduler_factor: float = 0.5
     scheduler_patience: int = 100
     scheduler_threshold: float = 0.01
     scheduler_min_lr: float = 1e-6
-    
+
     # Early stopping
-    early_stopping_patience: int = 500
-    
+    early_stopping_patience: int = 50
+
     # Loss weights
     pde_weight: float = 1.
     ic_weight: float = 1.
     data_weight: float = 10.
-    
+
     # Dataset parameters
     time_domain: Tuple[int, int] = (0, 90)
     collocation_points: int = 6000
-    
-    # Logging
-    log_every_n_steps: int = 61
 
 # %% [markdown]
 # ## Dataset creation
@@ -314,11 +311,15 @@ class SIRPINN(LightningModule):
             self.config.data_weight * data_loss_val
         )
 
-        self.log('train/pde_loss', pde_loss_val)
-        self.log('train/ic_loss', ic_loss_val)
-        self.log('train/data_loss', data_loss_val)
-        self.log('train/total_loss', total_loss, prog_bar=True)
-        self.log('train/beta', self.beta.item(), prog_bar=True)
+        self.log("train/pde_loss", pde_loss_val, on_epoch=True, on_step=False)
+        self.log("train/ic_loss", ic_loss_val, on_epoch=True, on_step=False)
+        self.log("train/data_loss", data_loss_val, on_epoch=True, on_step=False)
+        self.log(
+            "train/total_loss", total_loss, on_epoch=True, on_step=False, prog_bar=True
+        )
+        self.log(
+            "train/beta", self.beta.item(), on_epoch=True, on_step=False, prog_bar=True
+        )
 
         return total_loss
 
@@ -358,7 +359,9 @@ class SIRPINN(LightningModule):
 
 
 # %%
-def train_sir_pinn(t_obs: np.ndarray, i_obs: np.ndarray, config: SIRConfig) -> SIRPINN:
+def train_sir_pinn(
+    t_obs: np.ndarray, i_obs: np.ndarray, config: SIRConfig, skip_training: bool = False
+) -> SIRPINN:
     """
     Train a SIR PINN model using the provided observations.
 
@@ -370,6 +373,8 @@ def train_sir_pinn(t_obs: np.ndarray, i_obs: np.ndarray, config: SIRConfig) -> S
     Returns:
         Trained PINN model
     """
+    if skip_training:
+        return SIRPINN.load_from_checkpoint(checkpoints_dir + "last.ckpt")
 
     dataset = SIRDataset(
         t_obs=t_obs,
@@ -389,51 +394,52 @@ def train_sir_pinn(t_obs: np.ndarray, i_obs: np.ndarray, config: SIRConfig) -> S
 
     model = SIRPINN(config)
 
+    if os.path.exists(checkpoints_dir):
+        shutil.rmtree(checkpoints_dir)
+    os.makedirs(checkpoints_dir, exist_ok=True)
+
     checkpoint_callback = ModelCheckpoint(
-        dirpath=f"{log_dir}/checkpoints", # Directory to save checkpoints
-        filename='sir-pinn-{epoch:02d}-{train/total_loss:.2e}',
-        save_top_k=1,               # Save only the best model
-        monitor='train/total_loss', # Metric to monitor
-        mode='min',                 # Mode for the monitored metric (minimize loss)
-        save_last=True              # Also save the last epoch's checkpoint
+        dirpath=checkpoints_dir,  # directory to save checkpoints
+        filename="sir-pinn-{epoch:02d}-{train/total_loss:.2e}",
+        save_top_k=1,  # save only the best model
+        monitor="train/total_loss",  # metric to monitor
+        mode="min",  # minimize loss
+        save_last=True,  # save the last epoch's checkpoint
     )
 
     callbacks: list[Callback] = [
         EarlyStopping(
-            monitor='train/total_loss',
+            monitor="train/total_loss",
             patience=config.early_stopping_patience,
-            mode='min'
+            check_on_train_epoch_end=True,
+            mode="min",
         ),
         LearningRateMonitor(
-            logging_interval='epoch',
+            logging_interval="epoch",
         ),
-        ProgressBar(
-            refresh_rate=10
-        ),
-        checkpoint_callback
+        ProgressBar(refresh_rate=10),
+        checkpoint_callback,
     ]
 
     loggers = [
-        TensorBoardLogger(save_dir=f"{log_dir}/tensorboard", name=""),
-        CSVLogger(save_dir=f"{log_dir}/csv", name=""),
+        TensorBoardLogger(save_dir=f"{log_dir}tensorboard", name=""),
+        CSVLogger(save_dir=f"{log_dir}csv", name=""),
     ]
 
     trainer = Trainer(
         max_epochs=config.max_epochs,
         callbacks=callbacks,
-        log_every_n_steps=config.log_every_n_steps,
         logger=loggers,
     )
 
     trainer.fit(model, data_loader)
 
-    print(f"loading {checkpoint_callback.best_model_path}...")
-    model = SIRPINN.load_from_checkpoint(
-        checkpoint_callback.best_model_path
-    )
+    model = SIRPINN.load_from_checkpoint(checkpoint_callback.best_model_path)
 
     return model
 
+
+# %%
 
 # %% [markdown]
 # ## Synthetic data generation
@@ -516,9 +522,9 @@ def evaluate_sir_results(
         return mean_absolute_percentage_error(true, pred)
 
     print("\nModel Performance Metrics:")
-    print("-------------------------")
-    print(f"{'Compartment':<12} {'MSE':<12} {'MAPE (%)':<12} {'RE':<12}")
-    print("-" * 50)
+    print("-" * 44)
+    print(f"{'Compartment':<12} {'MSE':<10} {'MAPE (%)':<10} {'RE':<10}")
+    print("-" * 44)
 
     for comp, pred, true in zip(
         ["S", "I", "R"],
@@ -526,15 +532,14 @@ def evaluate_sir_results(
         [sir_true.s, sir_true.i, sir_true.r],
     ):
         print(
-            f"{comp:<12} {mse(pred, true):.2e} {mape(pred, true):.2e} {re(pred, true):.2e}"
+            f"{comp:<12} {mse(pred, true):.2e}   {mape(pred, true):.2e}   {re(pred, true):.2e}"
         )
 
     beta_error = abs(beta_pred - beta_true)
     beta_error_percent = beta_error / beta_true * 100
 
-    print("\nParameter Estimation Results:")
-    print("---------------------------")
-    print(f"Parameter: β")
+    print("\n\nβ Estimation Results:")
+    print("-" * 44)
     print(f"Predicted Value: {beta_pred:.4f}")
     print(f"True Value: {beta_true:.4f}")
     print(f"Absolute Error: {beta_error:.2e}")
@@ -557,7 +562,7 @@ if __name__ == "__main__":
     )
     t, sir_true, i_obs = generate_sir_data(config)
 
-    model = train_sir_pinn(t, i_obs, config)
+    model = train_sir_pinn(t, i_obs, config, skip_training=True)
 
     sir_pred = SIRData(*model.predict_sir(t).T)
     beta_pred = model.beta.item()
