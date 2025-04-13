@@ -124,7 +124,7 @@ class SIRConfig:
     beta_true: float = delta * r0
     initial_beta: float = 0.5
 
-    # Neural network architecture
+    # Network architecture
     hidden_layers: List[int] = field(default_factory=lambda: 4 * [50])
     activation: str = "tanh"
     output_activation: str = "softplus"
@@ -631,18 +631,25 @@ if __name__ == "__main__":
     )
 
     config = SIRConfig(
+        # Network architecture
+        hidden_layers=[64, 128, 128, 64],
         # Training parameters
         batch_size=256,
         max_epochs=2000,
+        gradient_clip_val=0.1,
         # Scheduler parameters
         scheduler_patience=70,
-        scheduler_threshold=0.005,
+        scheduler_threshold=5e-3,
         # Early stopping
         early_stopping_patience=100,
         # Loss weights
-        pde_weight=2.0,
-        ic_weight=2.0,
-        data_weight=5.0,
+        pde_weight=10.0,
+        ic_weight=5.0,
+        data_weight=1.0,
+        # Dataset parameters
+        collocation_points=8000,
+        # SMMA parameters
+        smma_window=20,
     )
 
     t, sir_true, i_obs = generate_sir_data(config)
