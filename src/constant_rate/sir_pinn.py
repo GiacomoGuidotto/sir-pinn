@@ -1,10 +1,15 @@
 # %% [markdown]
-# # SIR model: inverse problem
-# ## A PINN approach
+# # SIR model parameter estimation: a Physics-Informed Neural Network approach
 #
-# In this notebook, we will solve the inverse problem of the SIR model using a Physics-Informed Neural Network (PINN). The goal is to estimate the infection rate $\beta$ from the observed data of the infected population. To do this, we will train a PINN model, where we compute the residuals of the differential equation system with initial conditions and the data loss simultaneously.
+# This notebook presents an innovative approach to solving the inverse problem
+# of the SIR (Susceptible-Infected-Recovered) epidemiological model using
+# Physics-Informed Neural Networks (PINNs). The primary objective is to estimate
+# the infection rate parameter $\beta$ from observed infection data, while
+# respecting the underlying physical laws described by the SIR differential
+# equations.
 #
-# The SIR model is governed by the following set of ordinary differential equations (ODEs):
+# The SIR model is governed by the following system of ordinary differential
+# equations (ODEs):
 #
 # $$
 # \begin{cases}
@@ -14,10 +19,36 @@
 # \end{cases}
 # $$
 #
-# where $t \in [0, 90]$ and with the initial conditions $S(0) = N - 1$, $I(0) = 1$, and $R(0) = 0$.
+# where $t \in [0, 90]$ days, with initial conditions $S(0) = N - 1$, $I(0) =
+# 1$, and $R(0) = 0$. Here, $N$ represents the total population size, and
+# $\delta$ is the recovery rate.
+#
+# ## Implementation Overview
+#
+# The implementation combines deep learning with physical constraints to create
+# a hybrid model that:
+# - Learns from observed infection data
+# - Satisfies the SIR differential equations
+# - Respects initial conditions
+# - Provides uncertainty estimates
+#
+# The architecture uses a multi-layer perceptron (MLP) with custom activation
+# functions and a novel loss function that balances data fitting with physical
+# constraints.
+
+# ## Dependencies and Configuration
+#
+# The implementation leverages PyTorch for neural network operations and
+# Lightning for training orchestration. Key components include:
+# - Custom activation functions for better gradient flow
+# - Adaptive learning rate scheduling
+# - Early stopping to prevent overfitting
+# - Comprehensive logging for monitoring training progress
 
 # %% [markdown]
-# ## Configuration
+# ## Environment setup
+#
+# Import the necessary libraries and set up the environment.
 
 # %%
 # std
@@ -55,6 +86,8 @@ checkpoints_dir = f"{log_dir}checkpoints/"
 
 # %% [markdown]
 # ## Module's components
+#
+# Define additional components for the module.
 
 
 # %%
@@ -110,6 +143,8 @@ class ProgressBar(TQDMProgressBar):
 
 # %% [markdown]
 # ## Module's configuration
+#
+# Define the configuration dictionary for the module.
 
 
 # %%
@@ -162,6 +197,9 @@ class SIRConfig:
 
 # %% [markdown]
 # ## Dataset creation
+#
+# Define the dataset class, which will combine the observed data with random
+# collocation points.
 
 
 # %%
@@ -218,7 +256,9 @@ class SIRDataset(Dataset):
 
 # %% [markdown]
 # ## Module definition
-
+#
+# Define the module class, which will contain the PINN model with the
+# forward pass, loss computation, and optimizer.
 
 # %%
 class SIRPINN(LightningModule):
@@ -408,6 +448,8 @@ class SIRPINN(LightningModule):
 
 # %% [markdown]
 # ## Training definition
+#
+# Define the training function, which will be used to train the SIR PINN model.
 
 
 # %%
@@ -506,6 +548,9 @@ def train_sir_pinn(
 
 # %% [markdown]
 # ## Synthetic data generation
+#
+# Define the function to generate synthetic data using ODE integration.
+# The synthetic data will be used instead of the real data for now.
 
 
 # %%
@@ -544,6 +589,8 @@ def generate_sir_data(config: SIRConfig) -> Tuple[np.ndarray, SIRData, np.ndarra
 
 # %% [markdown]
 # ## Plotting results
+#
+# Define the function to plot the true vs predicted SIR dynamics.
 
 
 # %%
@@ -570,6 +617,8 @@ def plot_sir_results(
 
 # %% [markdown]
 # ## Evaluation
+#
+# Define the function to evaluate the model performance metrics.
 
 
 # %%
@@ -614,6 +663,9 @@ def evaluate_sir_results(
 
 # %% [markdown]
 # ## Execution
+#
+# Define the main function to execute the SIR PINN model.
+
 
 # %%
 if __name__ == "__main__":
