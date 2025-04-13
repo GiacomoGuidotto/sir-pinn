@@ -36,7 +36,12 @@ import torch
 import torch.nn as nn
 from lightning import Callback
 from lightning.pytorch import Trainer, LightningModule
-from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint,TQDMProgressBar
+from lightning.pytorch.callbacks import (
+    EarlyStopping,
+    LearningRateMonitor,
+    ModelCheckpoint,
+    TQDMProgressBar,
+)
 from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
 from scipy.integrate import odeint
 from sklearn.metrics import mean_absolute_percentage_error
@@ -51,9 +56,11 @@ checkpoints_dir = f"{log_dir}checkpoints/"
 # %% [markdown]
 # ## Module's components
 
+
 # %%
 class Square(nn.Module):
     """A module that squares its input element-wise."""
+
     @staticmethod
     def forward(x):
         return torch.square(x)
@@ -79,15 +86,16 @@ def create_mlp(layers_dims, activation, output_activation):
 
 
 activation_map = {
-    'tanh': nn.Tanh(),
-    'relu': nn.ReLU(),
-    'leaky_relu': nn.LeakyReLU(),
-    'sigmoid': nn.Sigmoid(),
-    'selu': nn.SELU(),
-    'square': Square(),
-    'softplus': nn.Softplus(),
-    'identity': nn.Identity()
+    "tanh": nn.Tanh(),
+    "relu": nn.ReLU(),
+    "leaky_relu": nn.LeakyReLU(),
+    "sigmoid": nn.Sigmoid(),
+    "selu": nn.SELU(),
+    "square": Square(),
+    "softplus": nn.Softplus(),
+    "identity": nn.Identity(),
 }
+
 
 class ProgressBar(TQDMProgressBar):
     def get_metrics(self, *args, **kwargs):
@@ -103,10 +111,12 @@ class ProgressBar(TQDMProgressBar):
 # %% [markdown]
 # ## Module's configuration
 
+
 # %%
 @dataclass
 class SIRConfig:
     """Configuration for SIR PINN model and training."""
+
     # Model parameters
     N: float = 56e6
     delta: float = 1 / 5
@@ -116,11 +126,11 @@ class SIRConfig:
 
     # Neural network architecture
     hidden_layers: List[int] = field(default_factory=lambda: 4 * [50])
-    activation: str = 'tanh'
-    output_activation: str = 'softplus'
+    activation: str = "tanh"
+    output_activation: str = "softplus"
 
     # Initial conditions (I0, R0)
-    initial_conditions: List[float] = field(default_factory=lambda: [1., 0.])
+    initial_conditions: List[float] = field(default_factory=lambda: [1.0, 0.0])
 
     # Training parameters
     learning_rate: float = 1e-3
@@ -146,24 +156,30 @@ class SIRConfig:
     time_domain: Tuple[int, int] = (0, 90)
     collocation_points: int = 6000
 
+    # SMMA parameters
+    smma_window: int = 10
+
+
 # %% [markdown]
 # ## Dataset creation
+
 
 # %%
 class SIRDataset(Dataset):
     """Dataset for SIR PINN training."""
+
     def __init__(
-        self, 
-        t_obs: np.ndarray, 
-        i_obs: np.ndarray, 
-        time_domain: Tuple[float, float], 
+        self,
+        t_obs: np.ndarray,
+        i_obs: np.ndarray,
+        time_domain: Tuple[float, float],
         n_collocation: int,
-        N: float
+        N: float,
     ):
         """
         Initialize dataset with observation points and random collocation points.
         The infected population is normalized to be in the range [0, 1].
-        
+
         Args:
             t_obs: Observation time points
             i_obs: Observed infected population at each time point
@@ -176,29 +192,33 @@ class SIRDataset(Dataset):
         i_norm = i_obs / N
         self.i_obs = torch.tensor(i_norm, dtype=torch.float32).reshape(-1, 1)
 
-        t_rand = np.expm1(np.random.uniform(np.log1p(t_min), np.log1p(t_max), n_collocation))
+        t_rand = np.expm1(
+            np.random.uniform(np.log1p(t_min), np.log1p(t_max), n_collocation)
+        )
         self.t_collocation = torch.tensor(t_rand, dtype=torch.float32).reshape(-1, 1)
-        
+
         self.t_combined = torch.cat([self.t_obs, self.t_collocation], dim=0)
-        
+
         self.is_obs = torch.zeros(len(self.t_combined), dtype=torch.bool)
-        self.is_obs[:len(self.t_obs)] = True
-        
+        self.is_obs[: len(self.t_obs)] = True
+
         self.i_targets = torch.zeros(len(self.t_combined), 1, dtype=torch.float32)
-        self.i_targets[:len(self.t_obs)] = self.i_obs
-        
+        self.i_targets[: len(self.t_obs)] = self.i_obs
+
     def __len__(self):
         return len(self.t_combined)
-    
+
     def __getitem__(self, idx):
         return {
-            't': self.t_combined[idx],
-            'is_obs': self.is_obs[idx],
-            'i_target': self.i_targets[idx]
+            "t": self.t_combined[idx],
+            "is_obs": self.is_obs[idx],
+            "i_target": self.i_targets[idx],
         }
+
 
 # %% [markdown]
 # ## Module definition
+
 
 # %%
 class SIRPINN(LightningModule):
@@ -218,7 +238,7 @@ class SIRPINN(LightningModule):
 
         self.beta = nn.Parameter(torch.tensor(config.initial_beta, dtype=torch.float32))
 
-        self.N = 1.
+        self.N = 1.0
         self.delta = config.delta
 
         self.loss_fn = nn.MSELoss()
@@ -228,13 +248,16 @@ class SIRPINN(LightningModule):
         ic = [self.N - i0 - r0, i0, r0]
         self.ic_true = torch.tensor(ic, dtype=torch.float32).reshape(1, 3)
 
+        self.loss_buffer = []
+        self.smma = None
+
     def forward(self, t: torch.Tensor) -> torch.Tensor:
         """
         Forward pass to compute S, I, R values at time t.
-        
+
         Args:
             t: Time points tensor of shape [batch_size, 1]
-            
+
         Returns:
             Tensor of shape [batch_size, 3] with [S, I, R] values
         """
@@ -245,13 +268,15 @@ class SIRPINN(LightningModule):
         return torch.cat([S, I, R], dim=1)
 
     @torch.inference_mode(False)
-    def compute_ode_residuals(self, t_tensor: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def compute_ode_residuals(
+        self, t_tensor: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Compute residuals of the SIR ODEs using automatic differentiation.
-        
+
         Args:
             t: Time points tensor of shape [batch_size, 1]
-            
+
         Returns:
             Tuple of residual tensors (res_S, res_I)
         """
@@ -290,27 +315,31 @@ class SIRPINN(LightningModule):
     def data_loss(self, t_obs: torch.Tensor, i_obs: torch.Tensor) -> torch.Tensor:
         """Compute data fitting loss."""
         if t_obs.shape[0] == 0:  # No observations in batch
-            return torch.tensor(0.0, device=self.device)     
+            return torch.tensor(0.0, device=self.device)
 
         i_pred = self(t_obs)[:, 1].reshape(-1, 1)
         return self.loss_fn(i_pred, i_obs)
 
     def training_step(self, batch):
-        t = batch['t']
-        is_obs = batch['is_obs']
-        i_target = batch['i_target']
+        t = batch["t"]
+        is_obs = batch["is_obs"]
+        i_target = batch["i_target"]
 
         t_obs = t[is_obs] if is_obs.any() else torch.zeros((0, 1), device=self.device)
-        i_obs = i_target[is_obs] if is_obs.any() else torch.zeros((0, 1), device=self.device)
+        i_obs = (
+            i_target[is_obs]
+            if is_obs.any()
+            else torch.zeros((0, 1), device=self.device)
+        )
 
         pde_loss_val = self.pde_loss(t)
         ic_loss_val = self.ic_loss()
         data_loss_val = self.data_loss(t_obs, i_obs)
 
         total_loss = (
-            self.config.pde_weight * pde_loss_val +
-            self.config.ic_weight * ic_loss_val +
-            self.config.data_weight * data_loss_val
+            self.config.pde_weight * pde_loss_val
+            + self.config.ic_weight * ic_loss_val
+            + self.config.data_weight * data_loss_val
         )
 
         self.log("train/pde_loss", pde_loss_val, on_epoch=True, on_step=False)
@@ -325,6 +354,29 @@ class SIRPINN(LightningModule):
 
         return total_loss
 
+    def on_train_epoch_end(self):
+        """Calculate and log SMMA of total loss at the end of each epoch."""
+        loss = self.trainer.callback_metrics.get("train/total_loss")
+        if loss is None:
+            return
+        loss = loss.item()
+        n = self.config.smma_window
+
+        if self.smma is None:
+            self.loss_buffer.append(loss)
+            if len(self.loss_buffer) == n:
+                self.smma = sum(self.loss_buffer) / n
+
+        else:
+            self.smma = ((n - 1) * self.smma + loss) / n
+
+            self.log(
+                "train/total_loss_smma",
+                self.smma,
+                on_epoch=True,
+                on_step=False,
+            )
+
     @torch.no_grad()
     def predict_sir(self, t):
         """Predict SIR values at specified time points."""
@@ -332,29 +384,27 @@ class SIRPINN(LightningModule):
         return self(t_tensor).cpu().numpy() * self.config.N
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(
-            self.parameters(), 
-            lr=self.config.learning_rate
-        )
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.config.learning_rate)
 
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
-            mode='min',
+            mode="min",
             factor=self.config.scheduler_factor,
             patience=self.config.scheduler_patience,
             threshold=self.config.scheduler_threshold,
-            min_lr=self.config.scheduler_min_lr
+            min_lr=self.config.scheduler_min_lr,
         )
 
         return {
-            'optimizer': optimizer,
-            'lr_scheduler': {
-                'scheduler': scheduler,
-                'monitor': 'train/total_loss',
-                'interval': 'epoch',
-                'frequency': 1
-            }
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "monitor": "train/total_loss",
+                "interval": "epoch",
+                "frequency": 1,
+            },
         }
+
 
 # %% [markdown]
 # ## Training definition
@@ -383,7 +433,7 @@ def train_sir_pinn(
         i_obs=i_obs,
         time_domain=config.time_domain,
         n_collocation=config.collocation_points,
-        N=config.N
+        N=config.N,
     )
 
     data_loader = DataLoader(
@@ -391,7 +441,7 @@ def train_sir_pinn(
         batch_size=config.batch_size,
         shuffle=True,
         num_workers=7,
-        persistent_workers=True
+        persistent_workers=True,
     )
 
     model = SIRPINN(config)
@@ -401,12 +451,12 @@ def train_sir_pinn(
     os.makedirs(checkpoints_dir, exist_ok=True)
 
     checkpoint_callback = ModelCheckpoint(
-        dirpath=checkpoints_dir,  # directory to save checkpoints
+        dirpath=checkpoints_dir,
         filename="sir-pinn-{epoch:02d}-{train/total_loss:.2e}",
-        save_top_k=1,  # save only the best model
-        monitor="train/total_loss",  # metric to monitor
-        mode="min",  # minimize loss
-        save_last=True,  # save the last epoch's checkpoint
+        save_top_k=1,
+        monitor="train/total_loss",
+        mode="min",
+        save_last=True,
     )
 
     callbacks: list[Callback] = [
@@ -419,13 +469,22 @@ def train_sir_pinn(
         LearningRateMonitor(
             logging_interval="epoch",
         ),
-        ProgressBar(refresh_rate=10),
+        ProgressBar(
+            refresh_rate=10,
+        ),
         checkpoint_callback,
     ]
 
     loggers = [
-        TensorBoardLogger(save_dir=f"{log_dir}tensorboard", name=""),
-        CSVLogger(save_dir=f"{log_dir}csv", name=""),
+        TensorBoardLogger(
+            save_dir=f"{log_dir}tensorboard",
+            name="",
+            default_hp_metric=False,
+        ),
+        CSVLogger(
+            save_dir=f"{log_dir}csv",
+            name="",
+        ),
     ]
 
     trainer = Trainer(
@@ -461,6 +520,7 @@ class SIRData:
 
 def generate_sir_data(config: SIRConfig) -> Tuple[np.ndarray, SIRData, np.ndarray]:
     """Generate synthetic SIR data using ODE integration."""
+
     def sir(x, _, d, b):
         s, i, _ = x
         l = b * i / config.N
@@ -473,7 +533,9 @@ def generate_sir_data(config: SIRConfig) -> Tuple[np.ndarray, SIRData, np.ndarra
     t_start, t_end = config.time_domain
     t = np.linspace(t_start, t_end, t_end - t_start + 1)
 
-    solution = odeint(sir, [config.N - i0 - r0, i0, r0], t, args=(config.delta, config.beta_true))
+    solution = odeint(
+        sir, [config.N - i0 - r0, i0, r0], t, args=(config.delta, config.beta_true)
+    )
     sir_true = SIRData(*solution.T)
     i_obs = np.random.poisson(sir_true.i)
 
