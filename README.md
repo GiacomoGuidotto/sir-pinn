@@ -1,4 +1,4 @@
-# EpiPINN
+# SIR-PINN
 
 A Physics-Informed Neural Network approach for an inverse problem in a SIR
 epidemiological model.
@@ -14,7 +14,7 @@ distribution is recommended.
 Create a new conda environment with the required dependencies:
 
 ```bash
-conda env create -f environment.yaml
+conda env create -f env.yaml
 conda activate pinn
 ```
 
@@ -26,16 +26,16 @@ jupyter notebook
 
 ## Managing the Environment
 
-If the environment already exists and the `environment.yaml` file has been
+If the environment already exists and the `env.yaml` file has been
 updated, you can update the environment with:
 
 ```bash
-conda env update -f environment.yaml --prune
+conda env update -f env.yaml --prune
 ```
 
-If you changed the environment and want to update the `environment.yaml` file,
+If you changed the environment and want to update the `env.yaml` file,
 you can do so with:
 
 ```bash
-conda env export --no-builds | grep -v "^prefix: " > environment.yaml
+conda env export --no-builds | grep -v "^prefix: " > env.yaml
 ```
