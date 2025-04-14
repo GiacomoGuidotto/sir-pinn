@@ -141,6 +141,37 @@ class ProgressBar(TQDMProgressBar):
         return items
 
 
+class SMMAStopping(Callback):
+    def __init__(self, threshold: float, lookback: int):
+        super().__init__()
+        self.threshold = threshold
+        self.lookback = lookback
+        self.smma_buffer = []
+
+    def on_train_epoch_end(self, trainer: Trainer, module: LightningModule):
+        current_smma = trainer.callback_metrics.get("train/total_loss_smma")
+        if current_smma is None:
+            return
+
+        self.smma_buffer.append(current_smma)
+        if len(self.smma_buffer) <= self.lookback:
+            return
+
+        if len(self.smma_buffer) > self.lookback + 1:
+            self.smma_buffer.pop(0)
+
+        lookback_smma = self.smma_buffer[0]
+        improvement = lookback_smma - current_smma
+        if improvement < self.threshold:
+            pass  # TODO: stop training
+            # print(
+            #     f"\nStopping training: SMMA improvement over {self.lookback} epochs ({improvement:.2e}) below threshold ({self.threshold:.2e})"
+            # )
+
+        module.log("internal/smma_improvement", improvement)
+        return
+
+
 # %% [markdown]
 # ## Module's configuration
 #
@@ -193,6 +224,8 @@ class SIRConfig:
 
     # SMMA parameters
     smma_window: int = 10
+    smma_threshold: float = 1e-4
+    smma_lookback: int = 10
 
 
 # %% [markdown]
@@ -502,11 +535,16 @@ def train_sir_pinn(
     )
 
     callbacks: list[Callback] = [
+        checkpoint_callback,
         EarlyStopping(
             monitor="train/total_loss",
             patience=config.early_stopping_patience,
             check_on_train_epoch_end=True,
             mode="min",
+        ),
+        SMMAStopping(
+            config.smma_threshold,
+            config.smma_lookback,
         ),
         LearningRateMonitor(
             logging_interval="epoch",
@@ -514,7 +552,6 @@ def train_sir_pinn(
         ProgressBar(
             refresh_rate=10,
         ),
-        checkpoint_callback,
     ]
 
     loggers = [
