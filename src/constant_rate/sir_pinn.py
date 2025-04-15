@@ -162,13 +162,15 @@ class SMMAStopping(Callback):
 
         lookback_smma = self.smma_buffer[0]
         improvement = lookback_smma - current_smma
-        if improvement < self.threshold:
-            pass  # TODO: stop training
-            # print(
-            #     f"\nStopping training: SMMA improvement over {self.lookback} epochs ({improvement:.2e}) below threshold ({self.threshold:.2e})"
-            # )
+        improvement_percentage = improvement / lookback_smma
 
-        module.log("internal/smma_improvement", improvement)
+        if 0 < improvement_percentage < self.threshold:
+            trainer.should_stop = True
+            print(
+                f"\nStopping training: SMMA improvement over {self.lookback} epochs ({improvement_percentage:.2%}) below threshold ({self.threshold:.2%})"
+            )
+
+        module.log("internal/smma_improvement", improvement_percentage)
         return
 
 
@@ -202,16 +204,16 @@ class SIRConfig:
     learning_rate: float = 1e-3
     batch_size: int = 100
     max_epochs: int = 1000
-    gradient_clip_val: float = 1.0
+    gradient_clip_val: float = 0.1
 
     # Scheduler parameters
     scheduler_factor: float = 0.5
-    scheduler_patience: int = 100
-    scheduler_threshold: float = 0.01
+    scheduler_patience: int = 70
+    scheduler_threshold: float = 5e-3
     scheduler_min_lr: float = 1e-6
 
     # Early stopping
-    early_stopping_patience: int = 250
+    early_stopping_patience: int = 100
 
     # Loss weights
     pde_weight: float = 1.0
@@ -223,9 +225,9 @@ class SIRConfig:
     collocation_points: int = 6000
 
     # SMMA parameters
-    smma_window: int = 10
-    smma_threshold: float = 1e-4
-    smma_lookback: int = 10
+    smma_window: int = 50
+    smma_threshold: float = 0.1
+    smma_lookback: int = 50
 
 
 # %% [markdown]
@@ -725,20 +727,12 @@ if __name__ == "__main__":
         # Training parameters
         batch_size=256,
         max_epochs=2000,
-        gradient_clip_val=0.1,
-        # Scheduler parameters
-        scheduler_patience=70,
-        scheduler_threshold=5e-3,
-        # Early stopping
-        early_stopping_patience=100,
         # Loss weights
         pde_weight=10.0,
         ic_weight=5.0,
         data_weight=1.0,
         # Dataset parameters
         collocation_points=8000,
-        # SMMA parameters
-        smma_window=20,
     )
 
     t, sir_true, i_obs = generate_sir_data(config)
