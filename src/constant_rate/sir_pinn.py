@@ -137,7 +137,7 @@ class ProgressBar(TQDMProgressBar):
         if "train/total_loss" in items:
             items["train/total_loss"] = f"{items['train/total_loss']:.2e}"
         if "train/beta" in items:
-            items["train/beta"] = f"{items['train/beta']:.3f}"
+            items["train/beta"] = f"{items['train/beta']:.4f}"
         return items
 
 
@@ -174,6 +174,18 @@ class SMMAStopping(Callback):
         return
 
 
+def mse(pred: np.ndarray, true: np.ndarray) -> float:
+    return np.mean((pred - true) ** 2).item()
+
+
+def re(pred: np.ndarray, true: np.ndarray) -> float:
+    return np.linalg.norm(true - pred, 2).item() / np.linalg.norm(true, 2).item()
+
+
+def mape(pred: np.ndarray, true: np.ndarray) -> float:
+    return float(mean_absolute_percentage_error(true, pred))
+
+
 # %% [markdown]
 # ## Module's configuration
 #
@@ -191,6 +203,10 @@ class SIRConfig:
     r0: float = 3.0
     beta_true: float = delta * r0
     initial_beta: float = 0.5
+
+    # Dataset parameters
+    time_domain: Tuple[int, int] = (0, 90)
+    collocation_points: int = 6000
 
     # Network architecture
     hidden_layers: List[int] = field(default_factory=lambda: 4 * [50])
@@ -220,14 +236,51 @@ class SIRConfig:
     ic_weight: float = 1.0
     data_weight: float = 1.0
 
-    # Dataset parameters
-    time_domain: Tuple[int, int] = (0, 90)
-    collocation_points: int = 6000
-
     # SMMA parameters
     smma_window: int = 50
     smma_threshold: float = 0.1
     smma_lookback: int = 50
+
+
+# %% [markdown]
+# ## Synthetic data generation
+#
+# Define the function to generate synthetic data using ODE integration.
+# The synthetic data will be used instead of the real data for now.
+
+
+# %%
+@dataclass
+class SIRData:
+    """Data structure for SIR model compartments."""
+
+    s: np.ndarray
+    i: np.ndarray
+    r: np.ndarray
+
+
+def generate_sir_data(config: SIRConfig) -> Tuple[np.ndarray, SIRData, np.ndarray]:
+    """Generate synthetic SIR data using ODE integration."""
+
+    def sir(x, _, d, b):
+        s, i, _ = x
+        l = b * i / config.N
+        ds_dt = -l * s
+        di_dt = l * s - d * i
+        dr_dt = d * i
+        return np.array([ds_dt, di_dt, dr_dt])
+
+    i0, r0 = config.initial_conditions
+    t_start, t_end = config.time_domain
+    t = np.linspace(t_start, t_end, t_end - t_start + 1)
+
+    solution = odeint(
+        sir, [config.N - i0 - r0, i0, r0], t, args=(config.delta, config.beta_true)
+    )
+    sir_true = SIRData(*solution.T)
+    i_obs = np.random.poisson(sir_true.i)
+
+    return t, sir_true, i_obs
 
 
 # %% [markdown]
@@ -343,7 +396,7 @@ class SIRPINN(LightningModule):
         return torch.cat([S, I, R], dim=1)
 
     @torch.inference_mode(False)
-    def compute_ode_residuals(
+    def _compute_ode_residuals(
         self, t_tensor: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -371,15 +424,15 @@ class SIRPINN(LightningModule):
 
         return res_S, res_I
 
-    def pde_loss(self, t: torch.Tensor) -> torch.Tensor:
+    def _compute_pde_loss(self, t: torch.Tensor) -> torch.Tensor:
         """Compute PDE residual loss."""
-        res_S, res_I = self.compute_ode_residuals(t)
+        res_S, res_I = self._compute_ode_residuals(t)
         loss_S = self.loss_fn(res_S, torch.zeros_like(res_S))
         loss_I = self.loss_fn(res_I, torch.zeros_like(res_I))
 
         return loss_S + loss_I
 
-    def ic_loss(self) -> torch.Tensor:
+    def _compute_ic_loss(self) -> torch.Tensor:
         """Compute initial condition loss."""
         t0_tensor = self.t0_tensor.to(self.device)
         ic_true = self.ic_true.to(self.device)
@@ -387,7 +440,9 @@ class SIRPINN(LightningModule):
 
         return self.loss_fn(ic_pred, ic_true)
 
-    def data_loss(self, t_obs: torch.Tensor, i_obs: torch.Tensor) -> torch.Tensor:
+    def _compute_data_loss(
+        self, t_obs: torch.Tensor, i_obs: torch.Tensor
+    ) -> torch.Tensor:
         """Compute data fitting loss."""
         if t_obs.shape[0] == 0:  # No observations in batch
             return torch.tensor(0.0, device=self.device)
@@ -407,9 +462,9 @@ class SIRPINN(LightningModule):
             else torch.zeros((0, 1), device=self.device)
         )
 
-        pde_loss_val = self.pde_loss(t)
-        ic_loss_val = self.ic_loss()
-        data_loss_val = self.data_loss(t_obs, i_obs)
+        pde_loss_val = self._compute_pde_loss(t)
+        ic_loss_val = self._compute_ic_loss()
+        data_loss_val = self._compute_data_loss(t_obs, i_obs)
 
         total_loss = (
             self.config.pde_weight * pde_loss_val
@@ -430,27 +485,20 @@ class SIRPINN(LightningModule):
         return total_loss
 
     def on_train_epoch_end(self):
-        """Calculate and log SMMA of total loss at the end of each epoch."""
+        """At the end of each epoch: calculate and log SMMA of total loss."""
         loss = self.trainer.callback_metrics.get("train/total_loss")
-        if loss is None:
-            return
-        loss = loss.item()
-        n = self.config.smma_window
+        if loss is not None:
+            loss = loss.item()
+            n = self.config.smma_window
 
-        if self.smma is None:
-            self.loss_buffer.append(loss)
-            if len(self.loss_buffer) == n:
-                self.smma = sum(self.loss_buffer) / n
+            if self.smma is None:
+                self.loss_buffer.append(loss)
+                if len(self.loss_buffer) == n:
+                    self.smma = sum(self.loss_buffer) / n
 
-        else:
-            self.smma = ((n - 1) * self.smma + loss) / n
-
-            self.log(
-                "train/total_loss_smma",
-                self.smma,
-                on_epoch=True,
-                on_step=False,
-            )
+            else:
+                self.smma = ((n - 1) * self.smma + loss) / n
+                self.log("train/total_loss_smma", self.smma)
 
     @torch.no_grad()
     def predict_sir(self, t):
@@ -498,6 +546,7 @@ def train_sir_pinn(
         t_obs: Observation time points
         i_obs: Observed infected proportions
         config: Configuration object
+        skip_training: Whether to skip training and load saved model
 
     Returns:
         Trained PINN model
@@ -582,50 +631,6 @@ def train_sir_pinn(
 
     return model
 
-
-# %%
-
-# %% [markdown]
-# ## Synthetic data generation
-#
-# Define the function to generate synthetic data using ODE integration.
-# The synthetic data will be used instead of the real data for now.
-
-
-# %%
-@dataclass
-class SIRData:
-    """Data structure for SIR model compartments."""
-
-    s: np.ndarray
-    i: np.ndarray
-    r: np.ndarray
-
-
-def generate_sir_data(config: SIRConfig) -> Tuple[np.ndarray, SIRData, np.ndarray]:
-    """Generate synthetic SIR data using ODE integration."""
-
-    def sir(x, _, d, b):
-        s, i, _ = x
-        l = b * i / config.N
-        ds_dt = -l * s
-        di_dt = l * s - d * i
-        dr_dt = d * i
-        return np.array([ds_dt, di_dt, dr_dt])
-
-    i0, r0 = config.initial_conditions
-    t_start, t_end = config.time_domain
-    t = np.linspace(t_start, t_end, t_end - t_start + 1)
-
-    solution = odeint(
-        sir, [config.N - i0 - r0, i0, r0], t, args=(config.delta, config.beta_true)
-    )
-    sir_true = SIRData(*solution.T)
-    i_obs = np.random.poisson(sir_true.i)
-
-    return t, sir_true, i_obs
-
-
 # %% [markdown]
 # ## Plotting results
 #
@@ -665,16 +670,6 @@ def evaluate_sir_results(
     sir_pred: SIRData, sir_true: SIRData, beta_pred: float, beta_true: float
 ):
     """Evaluate model performance metrics."""
-
-    def mse(pred, true):
-        return np.mean((pred - true) ** 2)
-
-    def re(pred, true):
-        return np.linalg.norm(true - pred, 2) / np.linalg.norm(true, 2)
-
-    def mape(pred, true):
-        return mean_absolute_percentage_error(true, pred)
-
     print("\nModel Performance Metrics:")
     print("-" * 44)
     print(f"{'Compartment':<12} {'MSE':<10} {'MAPE (%)':<10} {'RE':<10}")
