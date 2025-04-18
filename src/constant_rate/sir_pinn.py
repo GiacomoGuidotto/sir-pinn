@@ -80,9 +80,15 @@ from torch.utils.data import Dataset, DataLoader
 
 sns.set_theme(style="darkgrid")
 
-log_dir = "logs/"
+log_dir = "./logs"
 os.makedirs(log_dir, exist_ok=True)
-checkpoints_dir = f"{log_dir}checkpoints/"
+tensorboard_dir = os.path.join(log_dir, "tensorboard")
+os.makedirs(tensorboard_dir, exist_ok=True)
+csv_dir = os.path.join(log_dir, "csv")
+os.makedirs(csv_dir, exist_ok=True)
+saved_models_dir = "./versions"
+os.makedirs(saved_models_dir, exist_ok=True)
+checkpoints_dir = "./checkpoints"
 
 # %% [markdown]
 # ## Module's components
@@ -91,15 +97,6 @@ checkpoints_dir = f"{log_dir}checkpoints/"
 
 
 # %%
-@dataclass
-class SIRData:
-    """Data structure for SIR model compartments."""
-
-    s: np.ndarray
-    i: np.ndarray
-    r: np.ndarray
-
-
 class Square(nn.Module):
     """A module that squares its input element-wise."""
 
@@ -139,50 +136,6 @@ activation_map = {
 }
 
 
-class ProgressBar(TQDMProgressBar):
-    def get_metrics(self, *args, **kwargs):
-        items = super().get_metrics(*args, **kwargs)
-        items.pop("v_num", None)
-        if "train/total_loss" in items:
-            items["train/total_loss"] = f"{items['train/total_loss']:.2e}"
-        if "train/beta" in items:
-            items["train/beta"] = f"{items['train/beta']:.4f}"
-        return items
-
-
-class SMMAStopping(Callback):
-    def __init__(self, threshold: float, lookback: int):
-        super().__init__()
-        self.threshold = threshold
-        self.lookback = lookback
-        self.smma_buffer = []
-
-    def on_train_epoch_end(self, trainer: Trainer, module: LightningModule):
-        current_smma = trainer.callback_metrics.get("train/total_loss_smma")
-        if current_smma is None:
-            return
-
-        self.smma_buffer.append(current_smma)
-        if len(self.smma_buffer) <= self.lookback:
-            return
-
-        if len(self.smma_buffer) > self.lookback + 1:
-            self.smma_buffer.pop(0)
-
-        lookback_smma = self.smma_buffer[0]
-        improvement = lookback_smma - current_smma
-        improvement_percentage = improvement / lookback_smma
-
-        if 0 < improvement_percentage < self.threshold:
-            trainer.should_stop = True
-            print(
-                f"\nStopping training: SMMA improvement over {self.lookback} epochs ({improvement_percentage:.2%}) below threshold ({self.threshold:.2%})"
-            )
-
-        module.log("internal/smma_improvement", improvement_percentage)
-        return
-
-
 def mse(pred: np.ndarray, true: np.ndarray) -> float:
     return np.mean((pred - true) ** 2).item()
 
@@ -193,77 +146,6 @@ def re(pred: np.ndarray, true: np.ndarray) -> float:
 
 def mape(pred: np.ndarray, true: np.ndarray) -> float:
     return float(mean_absolute_percentage_error(true, pred))
-
-
-# %%
-class SIREvaluation(Callback):
-    """Callback to plot SIR results and log them to TensorBoard."""
-
-    def __init__(self, t: np.ndarray, sir_true: SIRData):
-        super().__init__()
-        self.t = t
-        self.sir_true = sir_true
-
-    def on_train_end(self, trainer: Trainer, module: LightningModule):
-        tb_logger = None
-        for logger in trainer.loggers:
-            if isinstance(logger, TensorBoardLogger):
-                tb_logger = logger.experiment
-                break
-
-        if tb_logger is None:
-            raise ValueError("TensorBoard logger not found")
-
-        sir_pred = SIRData(*module.predict_sir(self.t).T)
-        beta_pred = module.beta.item()
-
-        fig = plt.figure(figsize=(12, 6))
-        sns.lineplot(x=self.t, y=self.sir_true.s, label="$S_{\\mathrm{true}}$")
-        sns.lineplot(
-            x=self.t, y=sir_pred.s, label="$S_{\\mathrm{pred}}$", linestyle="--"
-        )
-        sns.lineplot(x=self.t, y=self.sir_true.i, label="$I_{\\mathrm{true}}$")
-        sns.lineplot(
-            x=self.t, y=sir_pred.i, label="$I_{\\mathrm{pred}}$", linestyle="--"
-        )
-        sns.lineplot(x=self.t, y=self.sir_true.r, label="$R_{\\mathrm{true}}$")
-        sns.lineplot(
-            x=self.t, y=sir_pred.r, label="$R_{\\mathrm{pred}}$", linestyle="--"
-        )
-
-        plt.title(
-            f"True vs Predicted SIR Dynamics (predicted $\\beta$ = {beta_pred:.4f})"
-        )
-        plt.xlabel("Time (days)")
-        plt.ylabel("Fraction of Population")
-        plt.legend()
-        plt.tight_layout()
-
-        tb_logger.add_figure("sir_dynamics", fig, global_step=trainer.global_step)
-        plt.close(fig)
-
-        for comp, pred, true in zip(
-            ["S", "I", "R"],
-            [sir_pred.s, sir_pred.i, sir_pred.r],
-            [self.sir_true.s, self.sir_true.i, self.sir_true.r],
-        ):
-            tb_logger.add_scalar(
-                f"metrics/mse_{comp}", mse(pred, true), trainer.global_step
-            )
-            tb_logger.add_scalar(
-                f"metrics/mape_{comp}", mape(pred, true), trainer.global_step
-            )
-            tb_logger.add_scalar(
-                f"metrics/re_{comp}", re(pred, true), trainer.global_step
-            )
-
-        beta_error = abs(beta_pred - module.config.beta_true)
-        beta_error_percent = beta_error / module.config.beta_true * 100
-        tb_logger.add_scalar("metrics/beta_error", beta_error, trainer.global_step)
-        tb_logger.add_scalar(
-            "metrics/beta_error_percent", beta_error_percent, trainer.global_step
-        )
-
 
 # %% [markdown]
 # ## Module's configuration
@@ -303,7 +185,7 @@ class SIRConfig:
 
     # Scheduler parameters
     scheduler_factor: float = 0.5
-    scheduler_patience: int = 70
+    scheduler_patience: int = 65
     scheduler_threshold: float = 5e-3
     scheduler_min_lr: float = 1e-6
 
@@ -326,6 +208,15 @@ class SIRConfig:
 #
 # Define the function to generate synthetic data using ODE integration.
 # The synthetic data will be used instead of the real data for now.
+
+
+@dataclass
+class SIRData:
+    """Data structure for SIR model compartments."""
+
+    s: np.ndarray
+    i: np.ndarray
+    r: np.ndarray
 
 
 def generate_sir_data(config: SIRConfig) -> Tuple[np.ndarray, SIRData, np.ndarray]:
@@ -600,6 +491,124 @@ class SIRPINN(LightningModule):
 
 
 # %% [markdown]
+# ## Custom callbacks
+
+
+# %%
+class ProgressBar(TQDMProgressBar):
+    def get_metrics(self, *args, **kwargs):
+        items = super().get_metrics(*args, **kwargs)
+        items.pop("v_num", None)
+        if "train/total_loss" in items:
+            items["train/total_loss"] = f"{items['train/total_loss']:.2e}"
+        if "train/beta" in items:
+            items["train/beta"] = f"{items['train/beta']:.4f}"
+        return items
+
+
+class SMMAStopping(Callback):
+    def __init__(self, threshold: float, lookback: int):
+        super().__init__()
+        self.threshold = threshold
+        self.lookback = lookback
+        self.smma_buffer = []
+
+    def on_train_epoch_end(self, trainer: Trainer, module: LightningModule):
+        current_smma = trainer.callback_metrics.get("train/total_loss_smma")
+        if current_smma is None:
+            return
+
+        self.smma_buffer.append(current_smma)
+        if len(self.smma_buffer) <= self.lookback:
+            return
+
+        if len(self.smma_buffer) > self.lookback + 1:
+            self.smma_buffer.pop(0)
+
+        lookback_smma = self.smma_buffer[0]
+        improvement = lookback_smma - current_smma
+        improvement_percentage = improvement / lookback_smma
+
+        if 0 < improvement_percentage < self.threshold:
+            trainer.should_stop = True
+            print(
+                f"\nStopping training: SMMA improvement over {self.lookback} epochs ({improvement_percentage:.2%}) below threshold ({self.threshold:.2%})"
+            )
+
+        module.log("internal/smma_improvement", improvement_percentage)
+        return
+
+
+class SIREvaluation(Callback):
+    """Callback to plot SIR results and log them to TensorBoard."""
+
+    def __init__(self, t: np.ndarray, sir_true: SIRData):
+        super().__init__()
+        self.t = t
+        self.sir_true = sir_true
+
+    def on_train_end(self, trainer: Trainer, module: LightningModule):
+        tb_logger = None
+        for logger in trainer.loggers:
+            if isinstance(logger, TensorBoardLogger):
+                tb_logger = logger.experiment
+                break
+
+        if tb_logger is None:
+            raise ValueError("TensorBoard logger not found")
+
+        sir_pred = SIRData(*module.predict_sir(self.t).T)
+        beta_pred = module.beta.item()
+
+        fig = plt.figure(figsize=(12, 6))
+        sns.lineplot(x=self.t, y=self.sir_true.s, label="$S_{\\mathrm{true}}$")
+        sns.lineplot(
+            x=self.t, y=sir_pred.s, label="$S_{\\mathrm{pred}}$", linestyle="--"
+        )
+        sns.lineplot(x=self.t, y=self.sir_true.i, label="$I_{\\mathrm{true}}$")
+        sns.lineplot(
+            x=self.t, y=sir_pred.i, label="$I_{\\mathrm{pred}}$", linestyle="--"
+        )
+        sns.lineplot(x=self.t, y=self.sir_true.r, label="$R_{\\mathrm{true}}$")
+        sns.lineplot(
+            x=self.t, y=sir_pred.r, label="$R_{\\mathrm{pred}}$", linestyle="--"
+        )
+
+        plt.title(
+            f"True vs Predicted SIR Dynamics (predicted $\\beta$ = {beta_pred:.4f})"
+        )
+        plt.xlabel("Time (days)")
+        plt.ylabel("Fraction of Population")
+        plt.legend()
+        plt.tight_layout()
+
+        tb_logger.add_figure("sir_dynamics", fig, global_step=trainer.global_step)
+        plt.close(fig)
+
+        for comp, pred, true in zip(
+            ["S", "I", "R"],
+            [sir_pred.s, sir_pred.i, sir_pred.r],
+            [self.sir_true.s, self.sir_true.i, self.sir_true.r],
+        ):
+            tb_logger.add_scalar(
+                f"metrics/mse_{comp}", mse(pred, true), trainer.global_step
+            )
+            tb_logger.add_scalar(
+                f"metrics/mape_{comp}", mape(pred, true), trainer.global_step
+            )
+            tb_logger.add_scalar(
+                f"metrics/re_{comp}", re(pred, true), trainer.global_step
+            )
+
+        beta_error = abs(beta_pred - module.config.beta_true)
+        beta_error_percent = beta_error / module.config.beta_true * 100
+        tb_logger.add_scalar("metrics/beta_error", beta_error, trainer.global_step)
+        tb_logger.add_scalar(
+            "metrics/beta_error_percent", beta_error_percent, trainer.global_step
+        )
+
+
+# %% [markdown]
 # ## Execution
 #
 # Define the main function to execute the SIR PINN model.
@@ -611,11 +620,36 @@ if __name__ == "__main__":
     parser.add_argument(
         "-s", "--skip", action="store_true", help="Skip training and load saved model"
     )
+    parser.add_argument(
+        "-v",
+        "--version",
+        type=int,
+        help="Version number of the model to load for evaluation",
+    )
     args = parser.parse_args()
     skip_training = args.skip
+    load_version = args.version
+
+    if load_version is not None or skip_training:
+        latest_version = len(os.listdir(saved_models_dir)) - 1
+        if latest_version < 0:
+            raise FileNotFoundError("No saved models found")
+
+        version = load_version if load_version is not None else latest_version
+        model_path = saved_models_dir + f"/version_{version}.ckpt"
+
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model version {version} not found")
+
+        model = SIRPINN.load_from_checkpoint(model_path)
+
+        print(f"Model version: {version}")
+        print(f"Model config: {model.config}")
+
+        exit()
 
     subprocess.Popen(
-        ["tensorboard", "--logdir", f"{log_dir}/tensorboard"],
+        ["tensorboard", "--logdir", tensorboard_dir],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -693,12 +727,12 @@ if __name__ == "__main__":
 
     loggers = [
         TensorBoardLogger(
-            save_dir=f"{log_dir}tensorboard",
+            save_dir=tensorboard_dir,
             name="",
             default_hp_metric=False,
         ),
         CSVLogger(
-            save_dir=f"{log_dir}csv",
+            save_dir=csv_dir,
             name="",
         ),
     ]
@@ -714,3 +748,9 @@ if __name__ == "__main__":
     trainer.fit(model, data_loader)
 
     model = SIRPINN.load_from_checkpoint(checkpoint_callback.best_model_path)
+    version = len(os.listdir(saved_models_dir))
+    model_path = saved_models_dir + f"/version_{version}.ckpt"
+    trainer.save_checkpoint(model_path)
+
+    if os.path.exists(checkpoints_dir):
+        shutil.rmtree(checkpoints_dir)
