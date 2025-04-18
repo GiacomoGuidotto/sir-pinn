@@ -706,16 +706,16 @@ if __name__ == "__main__":
 
     config = SIRConfig(
         # Network architecture
-        hidden_layers=[64, 128, 128, 64],
+        # hidden_layers=[64, 128, 128, 64],
         # Training parameters
-        batch_size=256,
-        max_epochs=2000,
+        # batch_size=256,
+        # max_epochs=2000,
         # Loss weights
-        pde_weight=10.0,
-        ic_weight=5.0,
-        data_weight=1.0,
+        # pde_weight=10.0,
+        # ic_weight=5.0,
+        # data_weight=1.0,
         # Dataset parameters
-        collocation_points=8000,
+        # collocation_points=8000,
     )
 
     t, sir_true, i_obs = generate_sir_data(config)
