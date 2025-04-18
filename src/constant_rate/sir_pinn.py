@@ -91,6 +91,15 @@ checkpoints_dir = f"{log_dir}checkpoints/"
 
 
 # %%
+@dataclass
+class SIRData:
+    """Data structure for SIR model compartments."""
+
+    s: np.ndarray
+    i: np.ndarray
+    r: np.ndarray
+
+
 class Square(nn.Module):
     """A module that squares its input element-wise."""
 
@@ -186,6 +195,76 @@ def mape(pred: np.ndarray, true: np.ndarray) -> float:
     return float(mean_absolute_percentage_error(true, pred))
 
 
+# %%
+class SIREvaluation(Callback):
+    """Callback to plot SIR results and log them to TensorBoard."""
+
+    def __init__(self, t: np.ndarray, sir_true: SIRData):
+        super().__init__()
+        self.t = t
+        self.sir_true = sir_true
+
+    def on_train_end(self, trainer: Trainer, module: LightningModule):
+        tb_logger = None
+        for logger in trainer.loggers:
+            if isinstance(logger, TensorBoardLogger):
+                tb_logger = logger.experiment
+                break
+
+        if tb_logger is None:
+            raise ValueError("TensorBoard logger not found")
+
+        sir_pred = SIRData(*module.predict_sir(self.t).T)
+        beta_pred = module.beta.item()
+
+        fig = plt.figure(figsize=(12, 6))
+        sns.lineplot(x=self.t, y=self.sir_true.s, label="$S_{\\mathrm{true}}$")
+        sns.lineplot(
+            x=self.t, y=sir_pred.s, label="$S_{\\mathrm{pred}}$", linestyle="--"
+        )
+        sns.lineplot(x=self.t, y=self.sir_true.i, label="$I_{\\mathrm{true}}$")
+        sns.lineplot(
+            x=self.t, y=sir_pred.i, label="$I_{\\mathrm{pred}}$", linestyle="--"
+        )
+        sns.lineplot(x=self.t, y=self.sir_true.r, label="$R_{\\mathrm{true}}$")
+        sns.lineplot(
+            x=self.t, y=sir_pred.r, label="$R_{\\mathrm{pred}}$", linestyle="--"
+        )
+
+        plt.title(
+            f"True vs Predicted SIR Dynamics (predicted $\\beta$ = {beta_pred:.4f})"
+        )
+        plt.xlabel("Time (days)")
+        plt.ylabel("Fraction of Population")
+        plt.legend()
+        plt.tight_layout()
+
+        tb_logger.add_figure("sir_dynamics", fig, global_step=trainer.global_step)
+        plt.close(fig)
+
+        for comp, pred, true in zip(
+            ["S", "I", "R"],
+            [sir_pred.s, sir_pred.i, sir_pred.r],
+            [self.sir_true.s, self.sir_true.i, self.sir_true.r],
+        ):
+            tb_logger.add_scalar(
+                f"metrics/mse_{comp}", mse(pred, true), trainer.global_step
+            )
+            tb_logger.add_scalar(
+                f"metrics/mape_{comp}", mape(pred, true), trainer.global_step
+            )
+            tb_logger.add_scalar(
+                f"metrics/re_{comp}", re(pred, true), trainer.global_step
+            )
+
+        beta_error = abs(beta_pred - module.config.beta_true)
+        beta_error_percent = beta_error / module.config.beta_true * 100
+        tb_logger.add_scalar("metrics/beta_error", beta_error, trainer.global_step)
+        tb_logger.add_scalar(
+            "metrics/beta_error_percent", beta_error_percent, trainer.global_step
+        )
+
+
 # %% [markdown]
 # ## Module's configuration
 #
@@ -247,16 +326,6 @@ class SIRConfig:
 #
 # Define the function to generate synthetic data using ODE integration.
 # The synthetic data will be used instead of the real data for now.
-
-
-# %%
-@dataclass
-class SIRData:
-    """Data structure for SIR model compartments."""
-
-    s: np.ndarray
-    i: np.ndarray
-    r: np.ndarray
 
 
 def generate_sir_data(config: SIRConfig) -> Tuple[np.ndarray, SIRData, np.ndarray]:
@@ -347,6 +416,7 @@ class SIRDataset(Dataset):
 #
 # Define the module class, which will contain the PINN model with the
 # forward pass, loss computation, and optimizer.
+
 
 # %%
 class SIRPINN(LightningModule):
@@ -530,172 +600,6 @@ class SIRPINN(LightningModule):
 
 
 # %% [markdown]
-# ## Training definition
-#
-# Define the training function, which will be used to train the SIR PINN model.
-
-
-# %%
-def train_sir_pinn(
-    t_obs: np.ndarray, i_obs: np.ndarray, config: SIRConfig, skip_training: bool = False
-) -> SIRPINN:
-    """
-    Train a SIR PINN model using the provided observations.
-
-    Args:
-        t_obs: Observation time points
-        i_obs: Observed infected proportions
-        config: Configuration object
-        skip_training: Whether to skip training and load saved model
-
-    Returns:
-        Trained PINN model
-    """
-    if skip_training:
-        return SIRPINN.load_from_checkpoint(checkpoints_dir + "last.ckpt")
-
-    dataset = SIRDataset(
-        t_obs=t_obs,
-        i_obs=i_obs,
-        time_domain=config.time_domain,
-        n_collocation=config.collocation_points,
-        N=config.N,
-    )
-
-    data_loader = DataLoader(
-        dataset,
-        batch_size=config.batch_size,
-        shuffle=True,
-        num_workers=7,
-        persistent_workers=True,
-    )
-
-    model = SIRPINN(config)
-
-    if os.path.exists(checkpoints_dir):
-        shutil.rmtree(checkpoints_dir)
-    os.makedirs(checkpoints_dir, exist_ok=True)
-
-    checkpoint_callback = ModelCheckpoint(
-        dirpath=checkpoints_dir,
-        filename="sir-pinn-{epoch:02d}-{train/total_loss:.2e}",
-        save_top_k=1,
-        monitor="train/total_loss",
-        mode="min",
-        save_last=True,
-    )
-
-    callbacks: list[Callback] = [
-        checkpoint_callback,
-        EarlyStopping(
-            monitor="train/total_loss",
-            patience=config.early_stopping_patience,
-            check_on_train_epoch_end=True,
-            mode="min",
-        ),
-        SMMAStopping(
-            config.smma_threshold,
-            config.smma_lookback,
-        ),
-        LearningRateMonitor(
-            logging_interval="epoch",
-        ),
-        ProgressBar(
-            refresh_rate=10,
-        ),
-    ]
-
-    loggers = [
-        TensorBoardLogger(
-            save_dir=f"{log_dir}tensorboard",
-            name="",
-            default_hp_metric=False,
-        ),
-        CSVLogger(
-            save_dir=f"{log_dir}csv",
-            name="",
-        ),
-    ]
-
-    trainer = Trainer(
-        max_epochs=config.max_epochs,
-        callbacks=callbacks,
-        logger=loggers,
-        log_every_n_steps=1,  # ignored by the on_epoch=True
-        gradient_clip_val=config.gradient_clip_val,
-    )
-
-    trainer.fit(model, data_loader)
-
-    model = SIRPINN.load_from_checkpoint(checkpoint_callback.best_model_path)
-
-    return model
-
-# %% [markdown]
-# ## Plotting results
-#
-# Define the function to plot the true vs predicted SIR dynamics.
-
-
-# %%
-def plot_sir_results(
-    t: np.ndarray, sir_true: SIRData, sir_pred: SIRData, beta_pred: float
-):
-    """Plot true vs predicted SIR dynamics."""
-    plt.figure(figsize=(12, 6))
-
-    sns.lineplot(x=t, y=sir_true.s, label="$S_{\\mathrm{true}}$")
-    sns.lineplot(x=t, y=sir_pred.s, label="$S_{\\mathrm{pred}}$", linestyle="--")
-    sns.lineplot(x=t, y=sir_true.i, label="$I_{\\mathrm{true}}$")
-    sns.lineplot(x=t, y=sir_pred.i, label="$I_{\\mathrm{pred}}$", linestyle="--")
-    sns.lineplot(x=t, y=sir_true.r, label="$R_{\\mathrm{true}}$")
-    sns.lineplot(x=t, y=sir_pred.r, label="$R_{\\mathrm{pred}}$", linestyle="--")
-
-    plt.title(f"True vs Predicted SIR Dynamics (predicted $\\beta$ = {beta_pred:.4f})")
-    plt.xlabel("Time (days)")
-    plt.ylabel("Fraction of Population")
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-
-
-# %% [markdown]
-# ## Evaluation
-#
-# Define the function to evaluate the model performance metrics.
-
-
-# %%
-def evaluate_sir_results(
-    sir_pred: SIRData, sir_true: SIRData, beta_pred: float, beta_true: float
-):
-    """Evaluate model performance metrics."""
-    print("\nModel Performance Metrics:")
-    print("-" * 44)
-    print(f"{'Compartment':<12} {'MSE':<10} {'MAPE (%)':<10} {'RE':<10}")
-    print("-" * 44)
-
-    for comp, pred, true in zip(
-        ["S", "I", "R"],
-        [sir_pred.s, sir_pred.i, sir_pred.r],
-        [sir_true.s, sir_true.i, sir_true.r],
-    ):
-        print(
-            f"{comp:<12} {mse(pred, true):.2e}   {mape(pred, true):.2e}   {re(pred, true):.2e}"
-        )
-
-    beta_error = abs(beta_pred - beta_true)
-    beta_error_percent = beta_error / beta_true * 100
-
-    print("\n\nβ Estimation Results:")
-    print("-" * 44)
-    print(f"Predicted Value: {beta_pred:.4f}")
-    print(f"True Value: {beta_true:.4f}")
-    print(f"Absolute Error: {beta_error:.2e}")
-    print(f"Relative Error: {beta_error_percent:.2f}%")
-
-
-# %% [markdown]
 # ## Execution
 #
 # Define the main function to execute the SIR PINN model.
@@ -705,7 +609,7 @@ def evaluate_sir_results(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--skip", action="store_true", help="Skip training and load saved model"
+        "-s", "--skip", action="store_true", help="Skip training and load saved model"
     )
     args = parser.parse_args()
     skip_training = args.skip
@@ -732,10 +636,81 @@ if __name__ == "__main__":
 
     t, sir_true, i_obs = generate_sir_data(config)
 
-    model = train_sir_pinn(t, i_obs, config, skip_training)
+    dataset = SIRDataset(
+        t_obs=t,
+        i_obs=i_obs,
+        time_domain=config.time_domain,
+        n_collocation=config.collocation_points,
+        N=config.N,
+    )
 
-    sir_pred = SIRData(*model.predict_sir(t).T)
-    beta_pred = model.beta.item()
+    data_loader = DataLoader(
+        dataset,
+        batch_size=config.batch_size,
+        shuffle=True,
+        num_workers=7,
+        persistent_workers=True,
+    )
 
-    plot_sir_results(t, sir_true, sir_pred, beta_pred)
-    evaluate_sir_results(sir_pred, sir_true, beta_pred, config.beta_true)
+    model = SIRPINN(config)
+
+    if os.path.exists(checkpoints_dir):
+        shutil.rmtree(checkpoints_dir)
+    os.makedirs(checkpoints_dir, exist_ok=True)
+
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=checkpoints_dir,
+        filename="{epoch:02d}",
+        save_top_k=1,
+        monitor="train/total_loss",
+        mode="min",
+        save_last=True,
+    )
+
+    callbacks: list[Callback] = [
+        checkpoint_callback,
+        EarlyStopping(
+            monitor="train/total_loss",
+            patience=config.early_stopping_patience,
+            check_on_train_epoch_end=True,
+            mode="min",
+        ),
+        SMMAStopping(
+            config.smma_threshold,
+            config.smma_lookback,
+        ),
+        LearningRateMonitor(
+            logging_interval="epoch",
+        ),
+        ProgressBar(
+            refresh_rate=10,
+        ),
+        SIREvaluation(
+            t,
+            sir_true,
+        ),
+    ]
+
+    loggers = [
+        TensorBoardLogger(
+            save_dir=f"{log_dir}tensorboard",
+            name="",
+            default_hp_metric=False,
+        ),
+        CSVLogger(
+            save_dir=f"{log_dir}csv",
+            name="",
+        ),
+    ]
+
+    trainer = Trainer(
+        max_epochs=config.max_epochs,
+        callbacks=callbacks,
+        logger=loggers,
+        log_every_n_steps=1,  # ignored by the on_epoch=True
+        gradient_clip_val=config.gradient_clip_val,
+    )
+
+    trainer.fit(model, data_loader)
+
+    model = SIRPINN.load_from_checkpoint(checkpoint_callback.best_model_path)
