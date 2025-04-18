@@ -57,10 +57,11 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass, field
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 # third-party
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 import numpy as np
 import seaborn as sns
 import torch
@@ -97,6 +98,15 @@ checkpoints_dir = "./checkpoints"
 
 
 # %%
+@dataclass
+class SIRData:
+    """Data structure for SIR model compartments."""
+
+    s: np.ndarray
+    i: np.ndarray
+    r: np.ndarray
+
+
 class Square(nn.Module):
     """A module that squares its input element-wise."""
 
@@ -146,6 +156,82 @@ def re(pred: np.ndarray, true: np.ndarray) -> float:
 
 def mape(pred: np.ndarray, true: np.ndarray) -> float:
     return float(mean_absolute_percentage_error(true, pred))
+
+
+def evaluate_sir_dynamics(
+    t: np.ndarray,
+    sir_pred: SIRData,
+    sir_true: SIRData,
+    beta_pred: float,
+    beta_true: float,
+) -> Tuple[Dict[str, float], Figure]:
+    """Evaluate SIR dynamics predictions and create visualization.
+
+    Args:
+        t: Time points
+        sir_pred: Predicted SIR values
+        sir_true: True SIR values
+        beta_pred: Predicted beta value
+        beta_true: True beta value
+
+    Returns:
+        Tuple containing:
+        - Dictionary with evaluation metrics (MSE, MAPE, RE for each component)
+        - Matplotlib figure with the visualization
+    """
+    metrics = {}
+
+    for comp, pred, true in zip(
+        ["S", "I", "R"],
+        [sir_pred.s, sir_pred.i, sir_pred.r],
+        [sir_true.s, sir_true.i, sir_true.r],
+    ):
+        metrics[f"mse_{comp}"] = mse(pred, true)
+        metrics[f"mape_{comp}"] = mape(pred, true)
+        metrics[f"re_{comp}"] = re(pred, true)
+
+    beta_error = abs(beta_pred - beta_true)
+    beta_error_percent = beta_error / beta_true * 100
+    metrics["beta_pred"] = beta_pred
+    metrics["beta_true"] = beta_true
+    metrics["beta_error"] = beta_error
+    metrics["beta_error_percent"] = beta_error_percent
+
+    fig = plt.figure(figsize=(12, 6))
+    sns.lineplot(x=t, y=sir_true.s, label="$S_{\\mathrm{true}}$")
+    sns.lineplot(x=t, y=sir_pred.s, label="$S_{\\mathrm{pred}}$", linestyle="--")
+    sns.lineplot(x=t, y=sir_true.i, label="$I_{\\mathrm{true}}$")
+    sns.lineplot(x=t, y=sir_pred.i, label="$I_{\\mathrm{pred}}$", linestyle="--")
+    sns.lineplot(x=t, y=sir_true.r, label="$R_{\\mathrm{true}}$")
+    sns.lineplot(x=t, y=sir_pred.r, label="$R_{\\mathrm{pred}}$", linestyle="--")
+
+    plt.title(f"True vs Predicted SIR Dynamics (predicted $\\beta$ = {beta_pred:.4f})")
+    plt.xlabel("Time (days)")
+    plt.ylabel("Fraction of Population")
+    plt.legend()
+    plt.tight_layout()
+
+    return metrics, fig
+
+
+def print_metrics(metrics: Dict[str, float]):
+    print("\nModel Performance Metrics:")
+    print("-" * 44)
+    print(f"{'Compartment':<12} {'MSE':<10} {'MAPE (%)':<10} {'RE':<10}")
+    print("-" * 44)
+
+    for comp in ["S", "I", "R"]:
+        print(
+            f"{comp:<12} {metrics[f'mse_{comp}']:.2e}   {metrics[f'mape_{comp}']:.2e}   {metrics[f're_{comp}']:.2e}"
+        )
+
+    print("\n\nβ Estimation Results:")
+    print("-" * 44)
+    print(f"Predicted Value: {metrics['beta_pred']:.4f}")
+    print(f"True Value: {metrics['beta_true']:.4f}")
+    print(f"Absolute Error: {metrics['beta_error']:.2e}")
+    print(f"Relative Error: {metrics['beta_error_percent']:.2f}%")
+
 
 # %% [markdown]
 # ## Module's configuration
@@ -208,15 +294,6 @@ class SIRConfig:
 #
 # Define the function to generate synthetic data using ODE integration.
 # The synthetic data will be used instead of the real data for now.
-
-
-@dataclass
-class SIRData:
-    """Data structure for SIR model compartments."""
-
-    s: np.ndarray
-    i: np.ndarray
-    r: np.ndarray
 
 
 def generate_sir_data(config: SIRConfig) -> Tuple[np.ndarray, SIRData, np.ndarray]:
@@ -560,52 +637,17 @@ class SIREvaluation(Callback):
         sir_pred = SIRData(*module.predict_sir(self.t).T)
         beta_pred = module.beta.item()
 
-        fig = plt.figure(figsize=(12, 6))
-        sns.lineplot(x=self.t, y=self.sir_true.s, label="$S_{\\mathrm{true}}$")
-        sns.lineplot(
-            x=self.t, y=sir_pred.s, label="$S_{\\mathrm{pred}}$", linestyle="--"
-        )
-        sns.lineplot(x=self.t, y=self.sir_true.i, label="$I_{\\mathrm{true}}$")
-        sns.lineplot(
-            x=self.t, y=sir_pred.i, label="$I_{\\mathrm{pred}}$", linestyle="--"
-        )
-        sns.lineplot(x=self.t, y=self.sir_true.r, label="$R_{\\mathrm{true}}$")
-        sns.lineplot(
-            x=self.t, y=sir_pred.r, label="$R_{\\mathrm{pred}}$", linestyle="--"
+        metrics, fig = evaluate_sir_dynamics(
+            self.t, sir_pred, self.sir_true, beta_pred, module.config.beta_true
         )
 
-        plt.title(
-            f"True vs Predicted SIR Dynamics (predicted $\\beta$ = {beta_pred:.4f})"
-        )
-        plt.xlabel("Time (days)")
-        plt.ylabel("Fraction of Population")
-        plt.legend()
-        plt.tight_layout()
+        for metric_name, metric_value in metrics.items():
+            tb_logger.add_scalar(
+                f"metrics/{metric_name}", metric_value, trainer.global_step
+            )
 
         tb_logger.add_figure("sir_dynamics", fig, global_step=trainer.global_step)
         plt.close(fig)
-
-        for comp, pred, true in zip(
-            ["S", "I", "R"],
-            [sir_pred.s, sir_pred.i, sir_pred.r],
-            [self.sir_true.s, self.sir_true.i, self.sir_true.r],
-        ):
-            tb_logger.add_scalar(
-                f"metrics/mse_{comp}", mse(pred, true), trainer.global_step
-            )
-            tb_logger.add_scalar(
-                f"metrics/mape_{comp}", mape(pred, true), trainer.global_step
-            )
-            tb_logger.add_scalar(
-                f"metrics/re_{comp}", re(pred, true), trainer.global_step
-            )
-
-        beta_error = abs(beta_pred - module.config.beta_true)
-        beta_error_percent = beta_error / module.config.beta_true * 100
-        tb_logger.add_scalar("metrics/beta_error", beta_error, trainer.global_step)
-        tb_logger.add_scalar(
-            "metrics/beta_error_percent", beta_error_percent, trainer.global_step
-        )
 
 
 # %% [markdown]
@@ -643,9 +685,17 @@ if __name__ == "__main__":
 
         model = SIRPINN.load_from_checkpoint(model_path)
 
-        print(f"Model version: {version}")
-        print(f"Model config: {model.config}")
+        print(f"Loaded model version {version}")
 
+        t, sir_true, i_obs = generate_sir_data(model.config)
+        sir_pred = SIRData(*model.predict_sir(t).T)
+
+        metrics, fig = evaluate_sir_dynamics(
+            t, sir_pred, sir_true, model.beta.item(), model.config.beta_true
+        )
+
+        print_metrics(metrics)
+        plt.show()
         exit()
 
     subprocess.Popen(
