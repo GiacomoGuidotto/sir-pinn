@@ -1,0 +1,36 @@
+config: !!python/object:__main__.SIRConfig
+  N: 56000000.0
+  activation: tanh
+  batch_size: 100
+  beta_true: 0.6000000000000001
+  collocation_points: 6000
+  data_weight: 1.0
+  delta: 0.2
+  early_stopping_patience: 100
+  gradient_clip_val: 0.1
+  hidden_layers:
+  - 50
+  - 50
+  - 50
+  - 50
+  ic_weight: 1.0
+  initial_beta: 0.5
+  initial_conditions:
+  - 1.0
+  - 0.0
+  learning_rate: 0.001
+  max_epochs: 1000
+  output_activation: softplus
+  pde_weight: 1.0
+  r0: 3.0
+  scheduler_factor: 0.5
+  scheduler_min_lr: 1.0e-06
+  scheduler_patience: 65
+  scheduler_threshold: 0.005
+  smma_enabled: false
+  smma_lookback: 50
+  smma_threshold: 0.1
+  smma_window: 50
+  time_domain: !!python/tuple
+  - 0
+  - 90

@@ -284,6 +284,7 @@ class SIRConfig:
     data_weight: float = 1.0
 
     # SMMA parameters
+    smma_enabled: bool = False
     smma_window: int = 50
     smma_threshold: float = 0.1
     smma_lookback: int = 50
@@ -759,10 +760,6 @@ if __name__ == "__main__":
             check_on_train_epoch_end=True,
             mode="min",
         ),
-        SMMAStopping(
-            config.smma_threshold,
-            config.smma_lookback,
-        ),
         LearningRateMonitor(
             logging_interval="epoch",
         ),
@@ -775,15 +772,23 @@ if __name__ == "__main__":
         ),
     ]
 
+    if config.smma_enabled:
+        callbacks.append(
+            SMMAStopping(
+                config.smma_threshold,
+                config.smma_lookback,
+            ),
+        )
+
     loggers = [
         TensorBoardLogger(
             save_dir=tensorboard_dir,
-            name="",
+            name="ablation_study",
             default_hp_metric=False,
         ),
         CSVLogger(
             save_dir=csv_dir,
-            name="",
+            name="ablation_study",
         ),
     ]
 
