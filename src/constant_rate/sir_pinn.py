@@ -218,15 +218,18 @@ def plot_sir_dynamics(
     """
     fig = plt.figure(figsize=(12, 6))
 
-    color = plt.colormaps.get_cmap("viridis")(np.random.rand())
+    color_map = plt.colormaps.get_cmap("viridis")
+    color_idx = np.random.rand()
+    color = color_map(color_idx)
     sns.lineplot(x=t, y=sir_true.s, label="$S_{\\mathrm{true}}$", color=color)
     sns.lineplot(x=t, y=sir_true.i, label="$I_{\\mathrm{true}}$", color=color)
     sns.lineplot(x=t, y=sir_true.r, label="$R_{\\mathrm{true}}$", color=color)
 
     # Plot predictions
-    for name, sir_pred, _ in predictions:
+    for i, (name, sir_pred, _) in enumerate(predictions):
         subscript = f"_{{{name}}}" if name else ""
-        color = plt.colormaps.get_cmap("viridis")(np.random.rand())
+        new_color_idx = (color_idx + (i + 1) / (len(predictions) + 1)) % 1
+        color = color_map(new_color_idx)
 
         sns.lineplot(
             x=t, y=sir_pred.s, label=f"$S{subscript}$", linestyle="--", color=color
@@ -262,50 +265,35 @@ def print_metrics(version_metrics: List[Tuple[str, Dict[str, float]]]):
         metric_names.extend([f"{comp}_mse", f"{comp}_mape", f"{comp}_re"])
     metric_names.extend(["beta_pred", "beta_true", "beta_error", "beta_error_percent"])
 
-    # --- Calculate Column Widths ---
-    # Width for the first column (metric names)
     metric_name_width = max(len(name) for name in metric_names)
-    metric_name_width = max(metric_name_width, len("Metric"))  # Ensure header fits
+    metric_name_width = max(metric_name_width, 6)  # len("metric")
 
-    # Width for the data columns
-    # Max length from formatting rules (e.g., " 1.23e+05%" is 10 chars)
-    max_format_len = 10
-    max_version_name_len = 0
-    if version_metrics:
-        max_version_name_len = max(len(name) for name, _ in version_metrics)
+    values_width = max(len(name) for name, _ in version_metrics)
+    values_width = max(values_width, 9)  # len("1.23e+05%")
 
-    # Data columns need enough space for the header or the longest formatted value
-    values_width = max(max_version_name_len, max_format_len)
-
-    # --- Print Header ---
-    header = f"| {'Metric':<{metric_name_width}} |"
+    header = f"| {'metric':<{metric_name_width}} |"
     subheader = f"| {'-' * metric_name_width} |"
     for name, _ in version_metrics:
-        # Center the version name within the calculated width
-        header += f" {name:^{values_width - 1}} |"
-        subheader += f" {'-' * (values_width - 1)} |"
+        header += f" {name:^{values_width}} |"
+        subheader += f" {'-' * (values_width)} |"
     print(header)
     print(subheader)
 
-    # --- Print Data Rows ---
     for metric in metric_names:
         row = f"| {metric:<{metric_name_width}} |"
         for _, metrics in version_metrics:
             value = metrics.get(metric)
             formatted_value = ""
-            # Inline formatting logic
             if value is None:
                 formatted_value = " N/A"
-            elif "mape" in metric:
-                # Add space padding manually before formatting
-                formatted_value = f" {value:.2e}%"
-            elif "error" in metric or "mse" in metric or "re" in metric:
-                formatted_value = f" {value:.2e}"
+            elif "_mape" in metric:
+                formatted_value = f"{value:.2e}%"
+            elif "_error" in metric or "_mse" in metric or "_re" in metric:
+                formatted_value = f"{value:.2e}"
             else:
-                formatted_value = f" {value:.4f}"
+                formatted_value = f"{value:.5f}"
 
-            # Right-align the formatted value within the calculated column width
-            row += f"{formatted_value:>{values_width}} |"
+            row += f" {formatted_value:>{values_width}} |"
         print(row)
 
 
@@ -793,7 +781,7 @@ if __name__ == "__main__":
         # Dataset parameters
         # collocation_points=8000,
         # Network architecture
-        # hidden_layers=[64, 128, 128, 64],
+        hidden_layers=[64, 128, 128, 64],
         # output_activation="softplus",
         # Loss weights
         # pde_weight=10.0,
@@ -802,6 +790,10 @@ if __name__ == "__main__":
         # Training parameters
         # batch_size=256,
         # max_epochs=2000,
+        # Early stopping
+        # early_stopping_enabled=True,
+        # SMMA stopping
+        # smma_stopping_enabled=True,
     )
 
     t, sir_true, i_obs = generate_sir_data(config)
