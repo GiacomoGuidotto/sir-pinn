@@ -160,77 +160,96 @@ def mape(pred: np.ndarray, true: np.ndarray) -> float:
 
 def evaluate_sir_dynamics(
     t: np.ndarray,
-    sir_pred: SIRData,
     sir_true: SIRData,
-    beta_pred: float,
     beta_true: float,
-) -> Tuple[Dict[str, float], Figure]:
-    """Evaluate SIR dynamics predictions and create visualization.
+    predictions: List[Tuple[str, SIRData, float]],
+) -> Tuple[List[Tuple[str, Dict[str, float]]], Figure]:
+    """Evaluate SIR dynamics predictions and create visualizations.
 
     Args:
         t: Time points
-        sir_pred: Predicted SIR values
         sir_true: True SIR values
-        beta_pred: Predicted beta value
         beta_true: True beta value
+        predictions: List of tuples containing (name, predicted SIR values, predicted beta)
 
     Returns:
         Tuple containing:
-        - Dictionary with evaluation metrics (MSE, MAPE, RE for each component)
-        - Matplotlib figure with the visualization
+        - Dictionary mapping prediction names to their evaluation metrics
+        - List of matplotlib figures with the visualizations
     """
-    metrics = {}
-
-    for comp, pred, true in zip(
-        ["S", "I", "R"],
-        [sir_pred.s, sir_pred.i, sir_pred.r],
-        [sir_true.s, sir_true.i, sir_true.r],
-    ):
-        metrics[f"mse_{comp}"] = mse(pred, true)
-        metrics[f"mape_{comp}"] = mape(pred, true)
-        metrics[f"re_{comp}"] = re(pred, true)
-
-    beta_error = abs(beta_pred - beta_true)
-    beta_error_percent = beta_error / beta_true * 100
-    metrics["beta_pred"] = beta_pred
-    metrics["beta_true"] = beta_true
-    metrics["beta_error"] = beta_error
-    metrics["beta_error_percent"] = beta_error_percent
+    version_metrics = []
 
     fig = plt.figure(figsize=(12, 6))
     sns.lineplot(x=t, y=sir_true.s, label="$S_{\\mathrm{true}}$")
-    sns.lineplot(x=t, y=sir_pred.s, label="$S_{\\mathrm{pred}}$", linestyle="--")
     sns.lineplot(x=t, y=sir_true.i, label="$I_{\\mathrm{true}}$")
-    sns.lineplot(x=t, y=sir_pred.i, label="$I_{\\mathrm{pred}}$", linestyle="--")
     sns.lineplot(x=t, y=sir_true.r, label="$R_{\\mathrm{true}}$")
-    sns.lineplot(x=t, y=sir_pred.r, label="$R_{\\mathrm{pred}}$", linestyle="--")
 
-    plt.title(f"True vs Predicted SIR Dynamics (predicted $\\beta$ = {beta_pred:.4f})")
+    plt.title(f"True vs Predicted SIR Dynamics")
     plt.xlabel("Time (days)")
     plt.ylabel("Fraction of Population")
     plt.legend()
     plt.tight_layout()
 
-    return metrics, fig
+    for name, sir_pred, beta_pred in predictions:
+        metrics = {}
+
+        for comp, pred, true in zip(
+            ["S", "I", "R"],
+            [sir_pred.s, sir_pred.i, sir_pred.r],
+            [sir_true.s, sir_true.i, sir_true.r],
+        ):
+            metrics[f"{comp}_mse"] = mse(pred, true)
+            metrics[f"{comp}_mape"] = mape(pred, true)
+            metrics[f"{comp}_re"] = re(pred, true)
+
+        beta_error = abs(beta_pred - beta_true)
+        beta_error_percent = beta_error / beta_true * 100
+        metrics["beta_true"] = beta_true
+        metrics["beta_pred"] = beta_pred
+        metrics["beta_error"] = beta_error
+        metrics["beta_error_percent"] = beta_error_percent
+
+        version_metrics.append((name, metrics))
+
+        subscript = f"_{{{name}}}" if name else ""
+        sns.lineplot(x=t, y=sir_pred.s, label=f"$S{subscript}$", linestyle="--")
+        sns.lineplot(x=t, y=sir_pred.i, label=f"$I{subscript}$", linestyle="--")
+        sns.lineplot(x=t, y=sir_pred.r, label=f"$R{subscript}$", linestyle="--")
+
+    return version_metrics, fig
 
 
-def print_metrics(metrics: Dict[str, float]):
-    print("\nModel Performance Metrics:")
-    print("-" * 44)
-    print(f"{'Compartment':<12} {'MSE':<10} {'MAPE (%)':<10} {'RE':<10}")
-    print("-" * 44)
+def print_metrics(version_metrics: List[Tuple[str, Dict[str, float]]]):
+    """Print metrics for multiple versions in a tabular format.
 
+    Args:
+        version_metrics: List of (version_name, metrics_dict) tuples
+    """
+    metric_names = []
     for comp in ["S", "I", "R"]:
-        print(
-            f"{comp:<12} {metrics[f'mse_{comp}']:.2e}   {metrics[f'mape_{comp}']:.2e}   {metrics[f're_{comp}']:.2e}"
-        )
+        metric_names.extend([f"{comp}_mse", f"{comp}_mape", f"{comp}_re"])
+    metric_names.extend(["beta_pred", "beta_true", "beta_error", "beta_error_percent"])
 
-    print("\n\nβ Estimation Results:")
-    print("-" * 44)
-    print(f"Predicted Value: {metrics['beta_pred']:.4f}")
-    print(f"True Value: {metrics['beta_true']:.4f}")
-    print(f"Absolute Error: {metrics['beta_error']:.2e}")
-    print(f"Relative Error: {metrics['beta_error_percent']:.2f}%")
+    version_widths = [max(len(name) for name, _ in version_metrics)]
+    metric_widths = [max(len(name), 10) for name in metric_names]
+
+    header = f"{'Metric':<{max(metric_widths)}}"
+    for name, _ in version_metrics:
+        header += f" | {name:<{max(version_widths)}}"
+    print("\n" + header)
+    print("-" * len(header))
+
+    for metric in metric_names:
+        row = f"{metric:<{max(metric_widths)}}"
+        for _, metrics in version_metrics:
+            value = metrics[metric]
+            if "error" in metric or "mse" in metric or "re" in metric:
+                row += f" | {value:.2e}"
+            elif "mape" in metric:
+                row += f" | {value:.2e}%"
+            else:
+                row += f" | {value:.4f}"
+        print(row)
 
 
 # %% [markdown]
@@ -591,7 +610,7 @@ class SMMAStopping(Callback):
         self.lookback = lookback
         self.smma_buffer = []
 
-    def on_train_epoch_end(self, trainer: Trainer, module: LightningModule):
+    def on_train_epoch_end(self, trainer: Trainer, module: SIRPINN):
         current_smma = trainer.callback_metrics.get("train/total_loss_smma")
         if current_smma is None:
             return
@@ -625,7 +644,7 @@ class SIREvaluation(Callback):
         self.t = t
         self.sir_true = sir_true
 
-    def on_train_end(self, trainer: Trainer, module: LightningModule):
+    def on_train_end(self, trainer: Trainer, module: SIRPINN):
         tb_logger = None
         for logger in trainer.loggers:
             if isinstance(logger, TensorBoardLogger):
@@ -638,8 +657,11 @@ class SIREvaluation(Callback):
         sir_pred = SIRData(*module.predict_sir(self.t).T)
         beta_pred = module.beta.item()
 
-        metrics, fig = evaluate_sir_dynamics(
-            self.t, sir_pred, self.sir_true, beta_pred, module.config.beta_true
+        [(_, metrics)], fig = evaluate_sir_dynamics(
+            self.t,
+            self.sir_true,
+            module.config.beta_true,
+            [("", sir_pred, beta_pred)],
         )
 
         for metric_name, metric_value in metrics.items():
@@ -667,36 +689,41 @@ if __name__ == "__main__":
         "-v",
         "--version",
         type=int,
-        help="Version number of the model to load for evaluation",
+        nargs="+",
+        help="Version number(s) of the model(s) to load for evaluation",
     )
     args = parser.parse_args()
     skip_training = args.skip
-    load_version = args.version
+    load_versions = args.version
 
-    if load_version is not None or skip_training:
+    if load_versions is not None or skip_training:
         latest_version = len(os.listdir(saved_models_dir)) - 1
         if latest_version < 0:
             raise FileNotFoundError("No saved models found")
 
-        version = load_version if load_version is not None else latest_version
-        model_path = saved_models_dir + f"/version_{version}.ckpt"
+        versions = load_versions if load_versions is not None else [latest_version]
+        predictions = []
 
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"Model version {version} not found")
+        for version in versions:
+            model_path = saved_models_dir + f"/version_{version}.ckpt"
 
-        model = SIRPINN.load_from_checkpoint(model_path)
+            if not os.path.exists(model_path):
+                raise FileNotFoundError(f"Model version {version} not found")
 
-        print(f"Loaded model version {version}")
+            model = SIRPINN.load_from_checkpoint(model_path)
 
-        t, sir_true, i_obs = generate_sir_data(model.config)
-        sir_pred = SIRData(*model.predict_sir(t).T)
+            t, sir_true, i_obs = generate_sir_data(model.config)
+            sir_pred = SIRData(*model.predict_sir(t).T)
+
+            predictions.append((f"version_{version}", sir_pred, model.beta.item()))
 
         metrics, fig = evaluate_sir_dynamics(
-            t, sir_pred, sir_true, model.beta.item(), model.config.beta_true
+            t, sir_true, model.config.beta_true, predictions
         )
 
         print_metrics(metrics)
         plt.show()
+        plt.close(fig)
         exit()
 
     subprocess.Popen(
