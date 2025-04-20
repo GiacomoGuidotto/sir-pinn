@@ -331,13 +331,18 @@ class SIRConfig:
     time_domain: Tuple[int, int] = (0, 90)
     collocation_points: int = 6000
 
+    # Initial conditions (I0, R0)
+    initial_conditions: List[float] = field(default_factory=lambda: [1.0, 0.0])
+
     # Network architecture
     hidden_layers: List[int] = field(default_factory=lambda: 4 * [50])
     activation: str = "tanh"
-    output_activation: str = "softplus"
+    output_activation: str = "square"
 
-    # Initial conditions (I0, R0)
-    initial_conditions: List[float] = field(default_factory=lambda: [1.0, 0.0])
+    # Loss weights
+    pde_weight: float = 1.0
+    ic_weight: float = 1.0
+    data_weight: float = 1.0
 
     # Training parameters
     learning_rate: float = 1e-3
@@ -352,15 +357,11 @@ class SIRConfig:
     scheduler_min_lr: float = 1e-6
 
     # Early stopping
+    early_stopping_enabled: bool = False
     early_stopping_patience: int = 100
 
-    # Loss weights
-    pde_weight: float = 1.0
-    ic_weight: float = 1.0
-    data_weight: float = 1.0
-
-    # SMMA parameters
-    smma_enabled: bool = False
+    # SMMA stopping
+    smma_stopping_enabled: bool = False
     smma_window: int = 50
     smma_threshold: float = 0.1
     smma_lookback: int = 50
@@ -789,17 +790,18 @@ if __name__ == "__main__":
     )
 
     config = SIRConfig(
+        # Dataset parameters
+        # collocation_points=8000,
         # Network architecture
         # hidden_layers=[64, 128, 128, 64],
-        # Training parameters
-        # batch_size=256,
-        # max_epochs=2000,
+        # output_activation="softplus",
         # Loss weights
         # pde_weight=10.0,
         # ic_weight=5.0,
         # data_weight=1.0,
-        # Dataset parameters
-        # collocation_points=8000,
+        # Training parameters
+        # batch_size=256,
+        # max_epochs=2000,
     )
 
     t, sir_true, i_obs = generate_sir_data(config)
@@ -837,12 +839,6 @@ if __name__ == "__main__":
 
     callbacks: list[Callback] = [
         checkpoint_callback,
-        EarlyStopping(
-            monitor="train/total_loss",
-            patience=config.early_stopping_patience,
-            check_on_train_epoch_end=True,
-            mode="min",
-        ),
         LearningRateMonitor(
             logging_interval="epoch",
         ),
@@ -855,7 +851,17 @@ if __name__ == "__main__":
         ),
     ]
 
-    if config.smma_enabled:
+    if config.early_stopping_enabled:
+        callbacks.append(
+            EarlyStopping(
+                monitor="train/total_loss",
+                patience=config.early_stopping_patience,
+                check_on_train_epoch_end=True,
+                mode="min",
+            ),
+        )
+
+    if config.smma_stopping_enabled:
         callbacks.append(
             SMMAStopping(
                 config.smma_threshold,
