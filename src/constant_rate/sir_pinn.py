@@ -261,8 +261,8 @@ def print_metrics(version_metrics: List[Tuple[str, Dict[str, float]]]):
         return
 
     metric_names = []
-    for comp in ["S", "I", "R"]:
-        metric_names.extend([f"{comp}_mse", f"{comp}_mape", f"{comp}_re"])
+    for m in ["mse", "mape", "re"]:
+        metric_names.extend([f"S_{m}", f"I_{m}", f"R_{m}"])
     metric_names.extend(["beta_pred", "beta_true", "beta_error", "beta_error_percent"])
 
     metric_name_width = max(len(name) for name in metric_names)
@@ -287,11 +287,13 @@ def print_metrics(version_metrics: List[Tuple[str, Dict[str, float]]]):
             if value is None:
                 formatted_value = " N/A"
             elif "_mape" in metric:
-                formatted_value = f"{value:.2e}%"
+                formatted_value = f"{value:.1e}%"
+            elif "_error_percent" in metric:
+                formatted_value = f"{value:.5f}%"
             elif "_error" in metric or "_mse" in metric or "_re" in metric:
                 formatted_value = f"{value:.2e}"
             else:
-                formatted_value = f"{value:.5f}"
+                formatted_value = f"{value:.6f}"
 
             row += f" {formatted_value:>{values_width}} |"
         print(row)
@@ -781,7 +783,7 @@ if __name__ == "__main__":
         # Dataset parameters
         # collocation_points=8000,
         # Network architecture
-        # hidden_layers=[64, 128, 128, 64],
+        hidden_layers=[64, 128, 128, 64],
         output_activation="softplus",
         # Loss weights
         # pde_weight=10.0,
