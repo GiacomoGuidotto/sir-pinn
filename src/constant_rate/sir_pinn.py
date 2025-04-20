@@ -970,7 +970,7 @@ if __name__ == "__main__":
 
     config = SIRConfig(
         # Dataset parameters
-        # collocation_points=8000,
+        collocation_points=8000,
         # Network architecture
         # hidden_layers=[64, 128, 128, 64],
         # output_activation="softplus",
@@ -979,8 +979,7 @@ if __name__ == "__main__":
         # ic_weight=5.0,
         # data_weight=1.0,
         # Training parameters
-        batch_size=256,
-        # max_epochs=2000,
+        # batch_size=256,
         # Early stopping
         # early_stopping_enabled=True,
         # SMMA stopping
