@@ -979,7 +979,7 @@ if __name__ == "__main__":
         # ic_weight=5.0,
         # data_weight=1.0,
         # Training parameters
-        # batch_size=256,
+        batch_size=256,
         # Early stopping
         # early_stopping_enabled=True,
         # SMMA stopping
