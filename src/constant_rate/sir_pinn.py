@@ -8,6 +8,8 @@
 # respecting the underlying physical laws described by the SIR differential
 # equations.
 #
+# ## Mathematical Model
+#
 # The SIR model is governed by the following system of ordinary differential
 # equations (ODEs):
 #
@@ -19,9 +21,19 @@
 # \end{cases}
 # $$
 #
-# where $t \in [0, 90]$ days, with initial conditions $S(0) = N - 1$, $I(0) =
-# 1$, and $R(0) = 0$. Here, $N$ represents the total population size, and
-# $\delta$ is the recovery rate.
+# where:
+# - $t \in [0, 90]$ days is the time domain
+# - $S(t)$ is the number of susceptible individuals
+# - $I(t)$ is the number of infected individuals
+# - $R(t)$ is the number of recovered individuals
+# - $N$ is the total population size
+# - $\beta$ is the infection rate parameter
+# - $\delta$ is the recovery rate
+#
+# Initial conditions are:
+# - $S(0) = N - 1$
+# - $I(0) = 1$
+# - $R(0) = 0$
 #
 # ## Implementation Overview
 #
@@ -34,16 +46,25 @@
 #
 # The architecture uses a multi-layer perceptron (MLP) with custom activation
 # functions and a novel loss function that balances data fitting with physical
-# constraints.
-
+# constraints. The loss function consists of three components:
+# 1. PDE loss: Ensures the neural network satisfies the SIR differential equations
+# 2. Initial condition loss: Enforces the correct initial values
+# 3. Data loss: Fits the model to observed infection data
+#
 # ## Dependencies and Configuration
 #
-# The implementation leverages PyTorch for neural network operations and
-# Lightning for training orchestration. Key components include:
+# The implementation leverages:
+# - PyTorch for neural network operations
+# - PyTorch Lightning for training orchestration
+# - SciPy for ODE integration
+# - Matplotlib and Seaborn for visualization
+#
+# Key features include:
 # - Custom activation functions for better gradient flow
 # - Adaptive learning rate scheduling
 # - Early stopping to prevent overfitting
 # - Comprehensive logging for monitoring training progress
+# - TensorBoard integration for visualization
 
 # %% [markdown]
 # ## Environment setup
@@ -92,9 +113,32 @@ os.makedirs(saved_models_dir, exist_ok=True)
 checkpoints_dir = "./checkpoints"
 
 # %% [markdown]
-# ## Module's components
+# ## Module's Components
 #
-# Define additional components for the module.
+# The implementation consists of several key components:
+#
+# ### Data Structures
+# - `SIRData`: A dataclass to store SIR compartment values (S, I, R)
+# - `SIRConfig`: Configuration class for model and training parameters
+#
+# ### Neural Network Components
+# - `Square`: Custom activation function for element-wise squaring
+# - `create_mlp`: Utility function to create multi-layer perceptrons
+# - `activation_map`: Dictionary of available activation functions
+#
+# ### Evaluation and Visualization
+# - `evaluate_sir`: Function to compute various error metrics
+# - `plot_sir_dynamics`: Function to visualize SIR trajectories
+# - `print_metrics`: Utility to display metrics in tabular format
+#
+# ### Training Components
+# - `SIRDataset`: Custom dataset class for training data
+# - `SIRPINN`: Main PINN model class
+# - Custom callbacks for training monitoring and early stopping
+#
+# Each component is designed to work together to solve the inverse problem
+# of estimating the infection rate parameter while respecting the physical
+# constraints of the SIR model.
 
 
 # %%
@@ -116,7 +160,16 @@ class Square(nn.Module):
 
 
 def create_mlp(layers_dims, activation, output_activation):
-    """Create a multi-layer perceptron with specified architecture."""
+    """Create a multi-layer perceptron with specified architecture.
+
+    Args:
+        layers_dims: List of integers specifying the number of neurons in each layer
+        activation: Activation function to use between layers
+        output_activation: Activation function to use for the output layer
+
+    Returns:
+        A PyTorch Sequential model with the specified architecture
+    """
     layers = []
     for i in range(len(layers_dims) - 1):
         layers.append(nn.Linear(layers_dims[i], layers_dims[i + 1]))
@@ -134,6 +187,7 @@ def create_mlp(layers_dims, activation, output_activation):
     return net
 
 
+# Dictionary mapping activation function names to their PyTorch implementations
 activation_map = {
     "tanh": nn.Tanh(),
     "relu": nn.ReLU(),
@@ -164,16 +218,18 @@ def evaluate_sir(
     beta_true: float,
     predictions: List[Tuple[str, SIRData, float]],
 ) -> List[Tuple[str, Dict[str, float]]]:
-    """Evaluate SIR dynamics predictions and compute metrics.
+    """Evaluate SIR model predictions against ground truth data.
 
     Args:
-        t: Time points
-        sir_true: True SIR values
-        beta_true: True beta value
-        predictions: List of tuples containing (name, predicted SIR values, predicted beta)
+        t: Array of time points
+        sir_true: Ground truth SIR data
+        beta_true: True value of the infection rate parameter
+        predictions: List of tuples containing (model_name, predicted_sir_data, predicted_beta)
 
     Returns:
-        List of tuples containing (name, metrics_dict) for each prediction
+        List of tuples containing (model_name, metrics_dict) where metrics_dict includes:
+        - MSE, MAPE, and relative error for each compartment (S, I, R)
+        - Beta prediction error and percentage error
     """
     version_metrics = []
 
@@ -227,7 +283,7 @@ def plot_sir_dynamics(
 
     # Plot predictions
     for i, (name, sir_pred, _) in enumerate(predictions):
-        subscript = f"_{{{name}}}" if name else ""
+        subscript = f"_{{{name}}}" if len(predictions) > 1 else "_pred"
         new_color_idx = (color_idx + (i + 1) / (len(predictions) + 1)) % 1
         color = color_map(new_color_idx)
 
@@ -251,10 +307,11 @@ def plot_sir_dynamics(
 
 
 def print_metrics(version_metrics: List[Tuple[str, Dict[str, float]]]):
-    """Print metrics for multiple versions in a tabular format.
+    """Print evaluation metrics in a formatted table.
 
     Args:
-        version_metrics: List of (version_name, metrics_dict) tuples
+        version_metrics: List of tuples containing (model_name, metrics_dict) where
+            metrics_dict contains various error metrics for SIR compartments and beta
     """
     if not version_metrics:
         print("No metrics to display.")
@@ -358,10 +415,23 @@ class SIRConfig:
 
 
 # %% [markdown]
-# ## Synthetic data generation
+# ## Synthetic Data Generation
 #
-# Define the function to generate synthetic data using ODE integration.
-# The synthetic data will be used instead of the real data for now.
+# Since real epidemiological data may be limited or noisy, we generate synthetic
+# data using numerical integration of the SIR ODEs. This approach allows us to:
+#
+# 1. Control the ground truth parameters (e.g., $\beta$)
+# 2. Generate noise-free data for validation
+# 3. Add controlled noise to simulate real-world conditions
+#
+# The data generation process:
+# 1. Solves the SIR ODEs using SciPy's `odeint`
+# 2. Adds Poisson noise to the infected compartment to simulate real-world
+#    counting processes
+# 3. Returns time points, true SIR values, and noisy observations
+#
+# This synthetic data serves as both training data and ground truth for
+# evaluating the model's performance.
 
 
 def generate_sir_data(config: SIRConfig) -> Tuple[np.ndarray, SIRData, np.ndarray]:
@@ -389,10 +459,32 @@ def generate_sir_data(config: SIRConfig) -> Tuple[np.ndarray, SIRData, np.ndarra
 
 
 # %% [markdown]
-# ## Dataset creation
+# ## Dataset Creation
 #
-# Define the dataset class, which will combine the observed data with random
-# collocation points.
+# The `SIRDataset` class combines observed data with collocation points to
+# create a comprehensive training dataset. Key features:
+#
+# ### Data Components
+# - **Observation Points**: Time points where we have actual infection data
+# - **Collocation Points**: Randomly sampled points where we enforce the
+#   physical constraints (PDEs)
+#
+# ### Data Processing
+# 1. Normalizes the infected population to [0, 1]
+# 2. Generates collocation points using exponential sampling for better
+#    coverage of the time domain
+# 3. Combines observation and collocation points into a single dataset
+#
+# ### Batch Structure
+# Each batch contains:
+# - Time points (`t`)
+# - Observation flags (`is_obs`)
+# - Target values (`i_target`)
+#
+# This structure allows the model to:
+# - Fit observed data where available
+# - Enforce physical constraints everywhere
+# - Handle missing data gracefully
 
 
 # %%
@@ -448,10 +540,38 @@ class SIRDataset(Dataset):
 
 
 # %% [markdown]
-# ## Module definition
+# ## Module Definition
 #
-# Define the module class, which will contain the PINN model with the
-# forward pass, loss computation, and optimizer.
+# The `SIRPINN` class implements the core Physics-Informed Neural Network
+# for the SIR model. Key aspects:
+#
+# ### Network Architecture
+# - Two separate MLPs for S and I compartments
+# - R compartment computed as R = N - S - I
+# - Custom activation functions for better gradient flow
+# - Learnable infection rate parameter $\beta$
+#
+# ### Loss Components
+# 1. **PDE Loss**: Ensures the network satisfies the SIR differential equations
+#    - Computes derivatives using automatic differentiation
+#    - Evaluates residuals at collocation points
+#
+# 2. **Initial Condition Loss**: Enforces correct starting values
+#    - Computes error at t = 0
+#    - Ensures physical consistency
+#
+# 3. **Data Loss**: Fits the model to observed infection data
+#    - Only evaluated at observation points
+#    - Handles missing data gracefully
+#
+# ### Training Features
+# - Adaptive learning rate scheduling
+# - Gradient clipping for stability
+# - Comprehensive logging
+# - Early stopping based on SMMA of loss
+#
+# The implementation uses PyTorch Lightning for efficient training
+# orchestration and monitoring.
 
 
 # %%
@@ -641,7 +761,20 @@ class SIRPINN(LightningModule):
 
 # %%
 class ProgressBar(TQDMProgressBar):
+    """Custom progress bar for training that formats metrics for better readability.
+
+    This class extends the TQDMProgressBar to provide custom formatting for
+    training metrics, particularly for the total loss and beta values.
+    """
     def get_metrics(self, *args, **kwargs):
+        """Format metrics for display in the progress bar.
+
+        Returns:
+            Dictionary of formatted metrics with:
+            - Total loss in scientific notation
+            - Beta value with 4 decimal places
+            - Other metrics as provided by the parent class
+        """
         items = super().get_metrics(*args, **kwargs)
         items.pop("v_num", None)
         if "train/total_loss" in items:
@@ -652,13 +785,30 @@ class ProgressBar(TQDMProgressBar):
 
 
 class SMMAStopping(Callback):
+    """Early stopping callback based on the Smoothed Moving Average (SMMA) of the loss.
+
+    This callback monitors the improvement in the SMMA of the total loss over a specified
+    lookback period. Training is stopped if the improvement falls below a threshold.
+    """
     def __init__(self, threshold: float, lookback: int):
+        """Initialize the SMMA stopping callback.
+
+        Args:
+            threshold: Minimum required improvement in SMMA (as a fraction)
+            lookback: Number of epochs to look back for computing improvement
+        """
         super().__init__()
         self.threshold = threshold
         self.lookback = lookback
         self.smma_buffer = []
 
     def on_train_epoch_end(self, trainer: Trainer, module: SIRPINN):
+        """Check if training should be stopped based on SMMA improvement.
+
+        Args:
+            trainer: The PyTorch Lightning trainer
+            module: The SIRPINN model being trained
+        """
         current_smma = trainer.callback_metrics.get("train/total_loss_smma")
         if current_smma is None:
             return
@@ -685,14 +835,30 @@ class SMMAStopping(Callback):
 
 
 class SIREvaluation(Callback):
-    """Callback to plot SIR results and log them to TensorBoard."""
+    """Callback for evaluating and visualizing SIR model predictions.
 
+    This callback generates plots of the SIR dynamics and logs metrics to TensorBoard
+    at the end of training. It compares the model's predictions against the ground truth
+    data and computes various error metrics.
+    """
     def __init__(self, t: np.ndarray, sir_true: SIRData):
+        """Initialize the evaluation callback.
+
+        Args:
+            t: Array of time points
+            sir_true: Ground truth SIR data
+        """
         super().__init__()
         self.t = t
         self.sir_true = sir_true
 
     def on_train_end(self, trainer: Trainer, module: SIRPINN):
+        """Generate evaluation plots and log metrics to TensorBoard.
+
+        Args:
+            trainer: The PyTorch Lightning trainer
+            module: The SIRPINN model being trained
+        """
         tb_logger = None
         for logger in trainer.loggers:
             if isinstance(logger, TensorBoardLogger):
@@ -724,7 +890,30 @@ class SIREvaluation(Callback):
 # %% [markdown]
 # ## Execution
 #
-# Define the main function to execute the SIR PINN model.
+# The main execution block provides a flexible interface for training and
+# evaluating the SIR PINN model. Key features:
+#
+# ### Command Line Interface
+# - `--skip`: Skip training and load a saved model
+# - `--version`: Specify model version(s) to load for evaluation
+#
+# ### Training Pipeline
+# 1. Generate synthetic training data
+# 2. Create and configure the dataset
+# 3. Initialize the model and training components
+# 4. Set up logging and callbacks
+# 5. Train the model
+# 6. Save the best model
+#
+# ### Evaluation Pipeline
+# 1. Load specified model version(s)
+# 2. Generate test data
+# 3. Compute predictions
+# 4. Calculate and display metrics
+# 5. Generate visualization plots
+#
+# The implementation includes comprehensive logging to TensorBoard and CSV
+# files for monitoring training progress and model performance.
 
 
 # %%
