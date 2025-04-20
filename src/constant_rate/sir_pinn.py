@@ -158,13 +158,13 @@ def mape(pred: np.ndarray, true: np.ndarray) -> float:
     return float(mean_absolute_percentage_error(true, pred))
 
 
-def evaluate_sir_dynamics(
+def evaluate_sir(
     t: np.ndarray,
     sir_true: SIRData,
     beta_true: float,
     predictions: List[Tuple[str, SIRData, float]],
-) -> Tuple[List[Tuple[str, Dict[str, float]]], Figure]:
-    """Evaluate SIR dynamics predictions and create visualizations.
+) -> List[Tuple[str, Dict[str, float]]]:
+    """Evaluate SIR dynamics predictions and compute metrics.
 
     Args:
         t: Time points
@@ -173,22 +173,9 @@ def evaluate_sir_dynamics(
         predictions: List of tuples containing (name, predicted SIR values, predicted beta)
 
     Returns:
-        Tuple containing:
-        - Dictionary mapping prediction names to their evaluation metrics
-        - List of matplotlib figures with the visualizations
+        List of tuples containing (name, metrics_dict) for each prediction
     """
     version_metrics = []
-
-    fig = plt.figure(figsize=(12, 6))
-    sns.lineplot(x=t, y=sir_true.s, label="$S_{\\mathrm{true}}$")
-    sns.lineplot(x=t, y=sir_true.i, label="$I_{\\mathrm{true}}$")
-    sns.lineplot(x=t, y=sir_true.r, label="$R_{\\mathrm{true}}$")
-
-    plt.title(f"True vs Predicted SIR Dynamics")
-    plt.xlabel("Time (days)")
-    plt.ylabel("Fraction of Population")
-    plt.legend()
-    plt.tight_layout()
 
     for name, sir_pred, beta_pred in predictions:
         metrics = {}
@@ -211,12 +198,53 @@ def evaluate_sir_dynamics(
 
         version_metrics.append((name, metrics))
 
-        subscript = f"_{{{name}}}" if name else ""
-        sns.lineplot(x=t, y=sir_pred.s, label=f"$S{subscript}$", linestyle="--")
-        sns.lineplot(x=t, y=sir_pred.i, label=f"$I{subscript}$", linestyle="--")
-        sns.lineplot(x=t, y=sir_pred.r, label=f"$R{subscript}$", linestyle="--")
+    return version_metrics
 
-    return version_metrics, fig
+
+def plot_sir_dynamics(
+    t: np.ndarray,
+    sir_true: SIRData,
+    predictions: List[Tuple[str, SIRData, float]],
+) -> Figure:
+    """Create visualization of SIR dynamics.
+
+    Args:
+        t: Time points
+        sir_true: True SIR values
+        predictions: List of tuples containing (name, predicted SIR values, predicted beta)
+
+    Returns:
+        Matplotlib figure with the visualization
+    """
+    fig = plt.figure(figsize=(12, 6))
+
+    color = plt.colormaps.get_cmap("viridis")(np.random.rand())
+    sns.lineplot(x=t, y=sir_true.s, label="$S_{\\mathrm{true}}$", color=color)
+    sns.lineplot(x=t, y=sir_true.i, label="$I_{\\mathrm{true}}$", color=color)
+    sns.lineplot(x=t, y=sir_true.r, label="$R_{\\mathrm{true}}$", color=color)
+
+    # Plot predictions
+    for name, sir_pred, _ in predictions:
+        subscript = f"_{{{name}}}" if name else ""
+        color = plt.colormaps.get_cmap("viridis")(np.random.rand())
+
+        sns.lineplot(
+            x=t, y=sir_pred.s, label=f"$S{subscript}$", linestyle="--", color=color
+        )
+        sns.lineplot(
+            x=t, y=sir_pred.i, label=f"$I{subscript}$", linestyle="--", color=color
+        )
+        sns.lineplot(
+            x=t, y=sir_pred.r, label=f"$R{subscript}$", linestyle="--", color=color
+        )
+
+    plt.title("True vs Predicted SIR Dynamics")
+    plt.xlabel("Time (days)")
+    plt.ylabel("Fraction of Population")
+    plt.legend()
+    plt.tight_layout()
+
+    return fig
 
 
 def print_metrics(version_metrics: List[Tuple[str, Dict[str, float]]]):
@@ -225,30 +253,59 @@ def print_metrics(version_metrics: List[Tuple[str, Dict[str, float]]]):
     Args:
         version_metrics: List of (version_name, metrics_dict) tuples
     """
+    if not version_metrics:
+        print("No metrics to display.")
+        return
+
     metric_names = []
     for comp in ["S", "I", "R"]:
         metric_names.extend([f"{comp}_mse", f"{comp}_mape", f"{comp}_re"])
     metric_names.extend(["beta_pred", "beta_true", "beta_error", "beta_error_percent"])
 
-    version_widths = [max(len(name) for name, _ in version_metrics)]
-    metric_widths = [max(len(name), 10) for name in metric_names]
+    # --- Calculate Column Widths ---
+    # Width for the first column (metric names)
+    metric_name_width = max(len(name) for name in metric_names)
+    metric_name_width = max(metric_name_width, len("Metric"))  # Ensure header fits
 
-    header = f"{'Metric':<{max(metric_widths)}}"
+    # Width for the data columns
+    # Max length from formatting rules (e.g., " 1.23e+05%" is 10 chars)
+    max_format_len = 10
+    max_version_name_len = 0
+    if version_metrics:
+        max_version_name_len = max(len(name) for name, _ in version_metrics)
+
+    # Data columns need enough space for the header or the longest formatted value
+    values_width = max(max_version_name_len, max_format_len)
+
+    # --- Print Header ---
+    header = f"| {'Metric':<{metric_name_width}} |"
+    subheader = f"| {'-' * metric_name_width} |"
     for name, _ in version_metrics:
-        header += f" | {name:<{max(version_widths)}}"
-    print("\n" + header)
-    print("-" * len(header))
+        # Center the version name within the calculated width
+        header += f" {name:^{values_width - 1}} |"
+        subheader += f" {'-' * (values_width - 1)} |"
+    print(header)
+    print(subheader)
 
+    # --- Print Data Rows ---
     for metric in metric_names:
-        row = f"{metric:<{max(metric_widths)}}"
+        row = f"| {metric:<{metric_name_width}} |"
         for _, metrics in version_metrics:
-            value = metrics[metric]
-            if "error" in metric or "mse" in metric or "re" in metric:
-                row += f" | {value:.2e}"
+            value = metrics.get(metric)
+            formatted_value = ""
+            # Inline formatting logic
+            if value is None:
+                formatted_value = " N/A"
             elif "mape" in metric:
-                row += f" | {value:.2e}%"
+                # Add space padding manually before formatting
+                formatted_value = f" {value:.2e}%"
+            elif "error" in metric or "mse" in metric or "re" in metric:
+                formatted_value = f" {value:.2e}"
             else:
-                row += f" | {value:.4f}"
+                formatted_value = f" {value:.4f}"
+
+            # Right-align the formatted value within the calculated column width
+            row += f"{formatted_value:>{values_width}} |"
         print(row)
 
 
@@ -650,25 +707,25 @@ class SIREvaluation(Callback):
             if isinstance(logger, TensorBoardLogger):
                 tb_logger = logger.experiment
                 break
-
         if tb_logger is None:
             raise ValueError("TensorBoard logger not found")
 
         sir_pred = SIRData(*module.predict_sir(self.t).T)
         beta_pred = module.beta.item()
+        predictions = [("", sir_pred, beta_pred)]
 
-        [(_, metrics)], fig = evaluate_sir_dynamics(
+        [(_, metrics)] = evaluate_sir(
             self.t,
             self.sir_true,
             module.config.beta_true,
-            [("", sir_pred, beta_pred)],
+            predictions,
         )
-
         for metric_name, metric_value in metrics.items():
             tb_logger.add_scalar(
                 f"metrics/{metric_name}", metric_value, trainer.global_step
             )
 
+        fig = plot_sir_dynamics(self.t, self.sir_true, predictions)
         tb_logger.add_figure("sir_dynamics", fig, global_step=trainer.global_step)
         plt.close(fig)
 
@@ -717,9 +774,8 @@ if __name__ == "__main__":
 
             predictions.append((f"version_{version}", sir_pred, model.beta.item()))
 
-        metrics, fig = evaluate_sir_dynamics(
-            t, sir_true, model.config.beta_true, predictions
-        )
+        metrics = evaluate_sir(t, sir_true, model.config.beta_true, predictions)
+        fig = plot_sir_dynamics(t, sir_true, predictions)
 
         print_metrics(metrics)
         plt.show()
