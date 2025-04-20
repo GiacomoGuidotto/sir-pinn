@@ -972,8 +972,8 @@ if __name__ == "__main__":
         # Dataset parameters
         collocation_points=8000,
         # Network architecture
-        # hidden_layers=[64, 128, 128, 64],
-        # output_activation="softplus",
+        hidden_layers=[64, 128, 128, 64],
+        output_activation="softplus",
         # Loss weights
         # pde_weight=10.0,
         # ic_weight=5.0,
