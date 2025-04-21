@@ -283,7 +283,7 @@ def plot_sir_dynamics(
 
     # Plot predictions
     for i, (name, sir_pred, _) in enumerate(predictions):
-        subscript = f"_{{{name}}}" if len(predictions) > 1 else "_pred"
+        subscript = f"_{{{name}}}" if len(predictions) > 1 else "_{pred}"
         new_color_idx = (color_idx + (i + 1) / (len(predictions) + 1)) % 1
         color = color_map(new_color_idx)
 
@@ -766,6 +766,7 @@ class ProgressBar(TQDMProgressBar):
     This class extends the TQDMProgressBar to provide custom formatting for
     training metrics, particularly for the total loss and beta values.
     """
+
     def get_metrics(self, *args, **kwargs):
         """Format metrics for display in the progress bar.
 
@@ -790,6 +791,7 @@ class SMMAStopping(Callback):
     This callback monitors the improvement in the SMMA of the total loss over a specified
     lookback period. Training is stopped if the improvement falls below a threshold.
     """
+
     def __init__(self, threshold: float, lookback: int):
         """Initialize the SMMA stopping callback.
 
@@ -841,6 +843,7 @@ class SIREvaluation(Callback):
     at the end of training. It compares the model's predictions against the ground truth
     data and computes various error metrics.
     """
+
     def __init__(self, t: np.ndarray, sir_true: SIRData):
         """Initialize the evaluation callback.
 
