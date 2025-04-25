@@ -910,14 +910,14 @@ class SIREvaluation(Callback):
 
 
 # %%
-def train(config: SIRConfig) -> SIRPINN:
+def train(config: SIRConfig) -> Tuple[str, int]:
     """Train a new SIR PINN model with the given configuration.
 
     Args:
         config: Configuration for the SIR PINN model and training
 
     Returns:
-        The trained SIRPINN model
+        Tuple of the path to the saved model and the version number
     """
     subprocess.Popen(
         ["tensorboard", "--logdir", tensorboard_dir],
@@ -1020,7 +1020,7 @@ def train(config: SIRConfig) -> SIRPINN:
     if os.path.exists(checkpoints_dir):
         shutil.rmtree(checkpoints_dir)
 
-    return model
+    return model_path, version
 
 
 def load(versions: List[int]) -> None:
