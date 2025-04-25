@@ -1,13 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""
-Ablation study for SIR-PINN model.
-This module implements a systematic approach to testing different configurations
-of the SIR-PINN model, including stopping criteria, output activations,
-network architectures, and batch sizes.
-"""
-
 import argparse
 import json
 import os
