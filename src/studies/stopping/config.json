@@ -1,0 +1,107 @@
+{
+  "name": "stopping",
+  "description": "Evaluation of different stopping criteria approaches...",
+  "base_config": {
+    "N": 56000000.0,
+    "delta": 0.2,
+    "r0": 3.0,
+    "beta_true": 0.6000000000000001,
+    "initial_beta": 0.5,
+    "time_domain": [
+      0,
+      90
+    ],
+    "collocation_points": 6000,
+    "initial_conditions": [
+      1.0,
+      0.0
+    ],
+    "hidden_layers": [
+      50,
+      50,
+      50,
+      50
+    ],
+    "activation": "tanh",
+    "output_activation": "square",
+    "pde_weight": 1.0,
+    "ic_weight": 1.0,
+    "data_weight": 1.0,
+    "learning_rate": 0.001,
+    "batch_size": 100,
+    "max_epochs": 1000,
+    "gradient_clip_val": 0.1,
+    "scheduler_factor": 0.5,
+    "scheduler_patience": 65,
+    "scheduler_threshold": 0.005,
+    "scheduler_min_lr": 1e-06,
+    "early_stopping_enabled": false,
+    "early_stopping_patience": 100,
+    "smma_stopping_enabled": false,
+    "smma_window": 50,
+    "smma_threshold": 0.1,
+    "smma_lookback": 50,
+    "name": "stopping"
+  },
+  "variations": [
+    {
+      "name": "no_stopping",
+      "description": "Baseline without any stopping criteria",
+      "config_updates": {}
+    },
+    {
+      "name": "smma_w25",
+      "description": "SMMA stopping with window=25, lookback=25",
+      "config_updates": {
+        "smma_stopping_enabled": true,
+        "smma_window": 25,
+        "smma_lookback": 25,
+        "smma_threshold": 0.1
+      }
+    },
+    {
+      "name": "smma_w50",
+      "description": "SMMA stopping with window=50, lookback=50",
+      "config_updates": {
+        "smma_stopping_enabled": true,
+        "smma_window": 50,
+        "smma_lookback": 50,
+        "smma_threshold": 0.1
+      }
+    },
+    {
+      "name": "smma_w75",
+      "description": "SMMA stopping with window=75, lookback=75",
+      "config_updates": {
+        "smma_stopping_enabled": true,
+        "smma_window": 75,
+        "smma_lookback": 75,
+        "smma_threshold": 0.1
+      }
+    },
+    {
+      "name": "early_stopping_p25",
+      "description": "Early stopping with patience=25",
+      "config_updates": {
+        "early_stopping_enabled": true,
+        "early_stopping_patience": 25
+      }
+    },
+    {
+      "name": "early_stopping_p50",
+      "description": "Early stopping with patience=50",
+      "config_updates": {
+        "early_stopping_enabled": true,
+        "early_stopping_patience": 50
+      }
+    },
+    {
+      "name": "early_stopping_p75",
+      "description": "Early stopping with patience=75",
+      "config_updates": {
+        "early_stopping_enabled": true,
+        "early_stopping_patience": 75
+      }
+    }
+  ]
+}

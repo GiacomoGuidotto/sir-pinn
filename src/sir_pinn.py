@@ -398,6 +398,8 @@ class SIRConfig:
     smma_threshold: float = 0.1
     smma_lookback: int = 50
 
+    name: str = "tests"
+
 
 # %% [markdown]
 # ## Synthetic Data Generation
@@ -724,7 +726,7 @@ class SIRPINN(LightningModule):
                 self.smma = ((n - 1) * self.smma + loss) / n
                 self.log("train/total_loss_smma", self.smma)
 
-        sir_pred = SIRData(*self.predict_sir(self.t_true).T)
+        sir_pred = SIRData(*self.predict_sir(self.t_true).T, beta=self.beta.item())
         si_re_val = si_re(sir_pred, self.sir_true)
 
         self.log("train/si_re", si_re_val)
@@ -993,12 +995,12 @@ def train(config: SIRConfig) -> Tuple[str, int]:
     loggers = [
         TensorBoardLogger(
             save_dir=tensorboard_dir,
-            name="ablation_study",
+            name=config.name,
             default_hp_metric=False,
         ),
         CSVLogger(
             save_dir=csv_dir,
-            name="ablation_study",
+            name=config.name,
         ),
     ]
 

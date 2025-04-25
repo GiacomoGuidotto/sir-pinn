@@ -26,12 +26,29 @@ class AblationConfig:
     base_config: SIRConfig
     variations: List[ConfigVariation]
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "base_config": self.base_config.__dict__,
+            "variations": [
+                {
+                    "name": v.name,
+                    "description": v.description,
+                    "config_updates": v.config_updates,
+                }
+                for v in self.variations
+            ],
+        }
+
 
 def create_ablation_configs() -> Dict[str, AblationConfig]:
     """Create configurations for the ablation study."""
 
     # Base configuration that will be modified for each test
-    stopping_base_config = SIRConfig()
+    stopping_base_config = SIRConfig(
+        name="stopping",
+    )
 
     stopping_study = AblationConfig(
         name="stopping",
@@ -73,6 +90,7 @@ def create_ablation_configs() -> Dict[str, AblationConfig]:
     # TODO: replace with best stopping config
     activation_base_config = replace(
         stopping_base_config,
+        name="activation",
         early_stopping_enabled=True,
         early_stopping_patience=50,
     )
@@ -94,6 +112,7 @@ def create_ablation_configs() -> Dict[str, AblationConfig]:
     # TODO: replace with best activation config
     architecture_base_config = replace(
         activation_base_config,
+        name="architecture",
         output_activation="softplus",
     )
 
@@ -119,6 +138,7 @@ def create_ablation_configs() -> Dict[str, AblationConfig]:
     # TODO: replace with best architecture config
     batch_base_config = replace(
         architecture_base_config,
+        name="batch_size",
         early_stopping_enabled=True,
         early_stopping_patience=50,
         output_activation="softplus",
@@ -158,12 +178,12 @@ def run_ablation_study(study_name: str):
     os.makedirs(study_dir, exist_ok=True)
 
     with open(f"{study_dir}/config.json", "w") as f:
-        json.dump(study, f, indent=2)
+        json.dump(study.to_dict(), f, indent=2)
 
     print(study.description)
 
     for variation in study.variations:
-        print(f"\n{variation.description}")
+        print(f"Variation: {variation.description}\n")
 
         config = replace(study.base_config, **variation.config_updates)
 
@@ -185,6 +205,7 @@ if __name__ == "__main__":
             "architecture",
             "batch_size",
         ],
+        required=True,
         help="Which study to run",
     )
     args = parser.parse_args()
