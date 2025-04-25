@@ -149,6 +149,7 @@ class SIRData:
     s: np.ndarray
     i: np.ndarray
     r: np.ndarray
+    beta: float
 
 
 class Square(nn.Module):
@@ -187,68 +188,49 @@ def create_mlp(layers_dims, activation, output_activation):
     return net
 
 
-# Dictionary mapping activation function names to their PyTorch implementations
-activation_map = {
-    "tanh": nn.Tanh(),
-    "relu": nn.ReLU(),
-    "leaky_relu": nn.LeakyReLU(),
-    "sigmoid": nn.Sigmoid(),
-    "selu": nn.SELU(),
-    "square": Square(),
-    "softplus": nn.Softplus(),
-    "identity": nn.Identity(),
-}
+def si_re(pred: SIRData, true: SIRData) -> float:
+    """Compute relative error of concatenated S-I vectors.
 
+    Args:
+        pred: Predicted SIRData
+        true: True SIRData
 
-def mse(pred: np.ndarray, true: np.ndarray) -> float:
-    return np.mean((pred - true) ** 2).item()
-
-
-def re(pred: np.ndarray, true: np.ndarray) -> float:
-    return np.linalg.norm(true - pred, 2).item() / np.linalg.norm(true, 2).item()
-
-
-def mape(pred: np.ndarray, true: np.ndarray) -> float:
-    return float(mean_absolute_percentage_error(true, pred))
+    Returns:
+        Relative error of concatenated S-I vectors
+    """
+    pred_si = np.concatenate([pred.s, pred.i])
+    true_si = np.concatenate([true.s, true.i])
+    return (
+        np.linalg.norm(true_si - pred_si, 2).item() / np.linalg.norm(true_si, 2).item()
+    )
 
 
 def evaluate_sir(
-    t: np.ndarray,
     sir_true: SIRData,
-    beta_true: float,
-    predictions: List[Tuple[str, SIRData, float]],
+    predictions: List[Tuple[str, SIRData]],
 ) -> List[Tuple[str, Dict[str, float]]]:
     """Evaluate SIR model predictions against ground truth data.
 
     Args:
-        t: Array of time points
         sir_true: Ground truth SIR data
-        beta_true: True value of the infection rate parameter
-        predictions: List of tuples containing (model_name, predicted_sir_data, predicted_beta)
+        predictions: List of tuples containing (model_name, predicted_sir_data)
 
     Returns:
         List of tuples containing (model_name, metrics_dict) where metrics_dict includes:
-        - MSE, MAPE, and relative error for each compartment (S, I, R)
+        - SI_RE: Relative error of concatenated S-I vectors
         - Beta prediction error and percentage error
     """
     version_metrics = []
 
-    for name, sir_pred, beta_pred in predictions:
+    for name, sir_pred in predictions:
         metrics = {}
 
-        for comp, pred, true in zip(
-            ["S", "I", "R"],
-            [sir_pred.s, sir_pred.i, sir_pred.r],
-            [sir_true.s, sir_true.i, sir_true.r],
-        ):
-            metrics[f"{comp}_mse"] = mse(pred, true)
-            metrics[f"{comp}_mape"] = mape(pred, true)
-            metrics[f"{comp}_re"] = re(pred, true)
+        metrics["si_re"] = si_re(sir_pred, sir_true)
 
-        beta_error = abs(beta_pred - beta_true)
-        beta_error_percent = beta_error / beta_true * 100
-        metrics["beta_true"] = beta_true
-        metrics["beta_pred"] = beta_pred
+        beta_error = abs(sir_pred.beta - sir_true.beta)
+        beta_error_percent = beta_error / sir_true.beta * 100
+        metrics["beta_true"] = sir_true.beta
+        metrics["beta_pred"] = sir_pred.beta
         metrics["beta_error"] = beta_error
         metrics["beta_error_percent"] = beta_error_percent
 
@@ -260,14 +242,14 @@ def evaluate_sir(
 def plot_sir_dynamics(
     t: np.ndarray,
     sir_true: SIRData,
-    predictions: List[Tuple[str, SIRData, float]],
+    predictions: List[Tuple[str, SIRData]],
 ) -> Figure:
     """Create visualization of SIR dynamics.
 
     Args:
         t: Time points
         sir_true: True SIR values
-        predictions: List of tuples containing (name, predicted SIR values, predicted beta)
+        predictions: List of tuples containing (name, predicted SIR values)
 
     Returns:
         Matplotlib figure with the visualization
@@ -282,7 +264,7 @@ def plot_sir_dynamics(
     sns.lineplot(x=t, y=sir_true.r, label="$R_{\\mathrm{true}}$", color=color)
 
     # Plot predictions
-    for i, (name, sir_pred, _) in enumerate(predictions):
+    for i, (name, sir_pred) in enumerate(predictions):
         subscript = f"_{{{name}}}" if len(predictions) > 1 else "_{pred}"
         new_color_idx = (color_idx + (i + 1) / (len(predictions) + 1)) % 1
         color = color_map(new_color_idx)
@@ -311,16 +293,19 @@ def print_metrics(version_metrics: List[Tuple[str, Dict[str, float]]]):
 
     Args:
         version_metrics: List of tuples containing (model_name, metrics_dict) where
-            metrics_dict contains various error metrics for SIR compartments and beta
+            metrics_dict contains SI relative error and beta metrics
     """
     if not version_metrics:
         print("No metrics to display.")
         return
 
-    metric_names = []
-    for m in ["mse", "mape", "re"]:
-        metric_names.extend([f"S_{m}", f"I_{m}", f"R_{m}"])
-    metric_names.extend(["beta_pred", "beta_true", "beta_error", "beta_error_percent"])
+    metric_names = [
+        "si_re",
+        "beta_pred",
+        "beta_true",
+        "beta_error",
+        "beta_error_percent",
+    ]
 
     metric_name_width = max(len(name) for name in metric_names)
     metric_name_width = max(metric_name_width, 6)  # len("metric")
@@ -343,11 +328,11 @@ def print_metrics(version_metrics: List[Tuple[str, Dict[str, float]]]):
             formatted_value = ""
             if value is None:
                 formatted_value = " N/A"
-            elif "_mape" in metric:
-                formatted_value = f"{value:.1e}%"
+            elif metric == "si_re":
+                formatted_value = f"{value:.2e}"
             elif "_error_percent" in metric:
                 formatted_value = f"{value:.5f}%"
-            elif "_error" in metric or "_mse" in metric or "_re" in metric:
+            elif "_error" in metric:
                 formatted_value = f"{value:.2e}"
             else:
                 formatted_value = f"{value:.6f}"
@@ -452,7 +437,7 @@ def generate_sir_data(config: SIRConfig) -> Tuple[np.ndarray, SIRData, np.ndarra
     solution = odeint(
         sir, [config.N - i0 - r0, i0, r0], t, args=(config.delta, config.beta_true)
     )
-    sir_true = SIRData(*solution.T)
+    sir_true = SIRData(*solution.T, beta=config.beta_true)
     i_obs = np.random.poisson(sir_true.i)
 
     return t, sir_true, i_obs
@@ -583,6 +568,17 @@ class SIRPINN(LightningModule):
         self.save_hyperparameters()
         self.config = config
 
+        activation_map = {
+            "tanh": nn.Tanh(),
+            "relu": nn.ReLU(),
+            "leaky_relu": nn.LeakyReLU(),
+            "sigmoid": nn.Sigmoid(),
+            "selu": nn.SELU(),
+            "square": Square(),
+            "softplus": nn.Softplus(),
+            "identity": nn.Identity(),
+        }
+
         layers_dims = [1] + config.hidden_layers + [1]
         activation = activation_map.get(config.activation)
         output_activation = activation_map.get(config.output_activation)
@@ -604,6 +600,8 @@ class SIRPINN(LightningModule):
 
         self.loss_buffer = []
         self.smma = None
+
+        self.t_true, self.sir_true, _ = generate_sir_data(self.config)
 
     def forward(self, t: torch.Tensor) -> torch.Tensor:
         """
@@ -710,8 +708,9 @@ class SIRPINN(LightningModule):
 
         return total_loss
 
+    @torch.no_grad()
     def on_train_epoch_end(self):
-        """At the end of each epoch: calculate and log SMMA of total loss."""
+        """At the end of each epoch: calculate and log SMMA of total loss and SI relative error."""
         loss = self.trainer.callback_metrics.get("train/total_loss")
         if loss is not None:
             loss = loss.item()
@@ -721,10 +720,14 @@ class SIRPINN(LightningModule):
                 self.loss_buffer.append(loss)
                 if len(self.loss_buffer) == n:
                     self.smma = sum(self.loss_buffer) / n
-
             else:
                 self.smma = ((n - 1) * self.smma + loss) / n
                 self.log("train/total_loss_smma", self.smma)
+
+        sir_pred = SIRData(*self.predict_sir(self.t_true).T)
+        si_re_val = si_re(sir_pred, self.sir_true)
+
+        self.log("train/si_re", si_re_val)
 
     @torch.no_grad()
     def predict_sir(self, t):
@@ -856,7 +859,7 @@ class SIREvaluation(Callback):
         self.sir_true = sir_true
 
     def on_train_end(self, trainer: Trainer, module: SIRPINN):
-        """Generate evaluation plots and log metrics to TensorBoard.
+        """Generate evaluation plots and save them to TensorBoard.
 
         Args:
             trainer: The PyTorch Lightning trainer
@@ -870,22 +873,9 @@ class SIREvaluation(Callback):
         if tb_logger is None:
             raise ValueError("TensorBoard logger not found")
 
-        sir_pred = SIRData(*module.predict_sir(self.t).T)
-        beta_pred = module.beta.item()
-        predictions = [("", sir_pred, beta_pred)]
+        sir_pred = SIRData(*module.predict_sir(self.t).T, beta=module.beta.item())
 
-        [(_, metrics)] = evaluate_sir(
-            self.t,
-            self.sir_true,
-            module.config.beta_true,
-            predictions,
-        )
-        for metric_name, metric_value in metrics.items():
-            tb_logger.add_scalar(
-                f"metrics/{metric_name}", metric_value, trainer.global_step
-            )
-
-        fig = plot_sir_dynamics(self.t, self.sir_true, predictions)
+        fig = plot_sir_dynamics(self.t, self.sir_true, [("", sir_pred)])
         tb_logger.add_figure("sir_dynamics", fig, global_step=trainer.global_step)
         plt.close(fig)
 
@@ -920,73 +910,19 @@ class SIREvaluation(Callback):
 
 
 # %%
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "-s", "--skip", action="store_true", help="Skip training and load saved model"
-    )
-    parser.add_argument(
-        "-v",
-        "--version",
-        type=int,
-        nargs="+",
-        help="Version number(s) of the model(s) to load for evaluation",
-    )
-    args = parser.parse_args()
-    skip_training = args.skip
-    load_versions = args.version
+def train(config: SIRConfig) -> SIRPINN:
+    """Train a new SIR PINN model with the given configuration.
 
-    if load_versions is not None or skip_training:
-        latest_version = len(os.listdir(saved_models_dir)) - 1
-        if latest_version < 0:
-            raise FileNotFoundError("No saved models found")
+    Args:
+        config: Configuration for the SIR PINN model and training
 
-        versions = load_versions if load_versions is not None else [latest_version]
-        predictions = []
-
-        for version in versions:
-            model_path = saved_models_dir + f"/version_{version}.ckpt"
-
-            if not os.path.exists(model_path):
-                raise FileNotFoundError(f"Model version {version} not found")
-
-            model = SIRPINN.load_from_checkpoint(model_path)
-
-            t, sir_true, i_obs = generate_sir_data(model.config)
-            sir_pred = SIRData(*model.predict_sir(t).T)
-
-            predictions.append((f"version_{version}", sir_pred, model.beta.item()))
-
-        metrics = evaluate_sir(t, sir_true, model.config.beta_true, predictions)
-        fig = plot_sir_dynamics(t, sir_true, predictions)
-
-        print_metrics(metrics)
-        plt.show()
-        plt.close(fig)
-        exit()
-
+    Returns:
+        The trained SIRPINN model
+    """
     subprocess.Popen(
         ["tensorboard", "--logdir", tensorboard_dir],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-    )
-
-    config = SIRConfig(
-        # Dataset parameters
-        collocation_points=8000,
-        # Network architecture
-        hidden_layers=[64, 128, 128, 64],
-        output_activation="softplus",
-        # Loss weights
-        pde_weight=10.0,
-        ic_weight=5.0,
-        data_weight=1.0,
-        # Training parameters
-        batch_size=256,
-        # Early stopping
-        early_stopping_enabled=True,
-        # SMMA stopping
-        smma_stopping_enabled=True,
     )
 
     t, sir_true, i_obs = generate_sir_data(config)
@@ -1083,3 +1019,78 @@ if __name__ == "__main__":
 
     if os.path.exists(checkpoints_dir):
         shutil.rmtree(checkpoints_dir)
+
+    return model
+
+
+def load(versions: List[int]) -> None:
+    """Load and evaluate specified model versions.
+
+    Args:
+        versions: List of version numbers to load. Negative numbers count from the end
+                 (e.g., -1 for latest, -2 for second latest, etc.)
+    """
+    latest_version = len(os.listdir(saved_models_dir)) - 1
+    if latest_version < 0:
+        raise FileNotFoundError("No saved models found")
+
+    versions = [v if v >= 0 else latest_version + v + 1 for v in versions]
+    predictions = []
+
+    for version in versions:
+        model_path = saved_models_dir + f"/version_{version}.ckpt"
+
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model version {version} not found")
+
+        model = SIRPINN.load_from_checkpoint(model_path)
+
+        t, sir_true, _ = generate_sir_data(model.config)
+        sir_pred = SIRData(*model.predict_sir(t).T, beta=model.beta.item())
+
+        predictions.append((f"version_{{{version}}}", sir_pred))
+
+    metrics = evaluate_sir(sir_true, predictions)
+    print_metrics(metrics)
+
+    fig = plot_sir_dynamics(t, sir_true, predictions)
+    plt.show()
+    plt.close(fig)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-v",
+        "--version",
+        type=int,
+        nargs="+",
+        help="Version number(s) of the model(s) to load for evaluation. "
+        "Negative numbers count from the end (e.g., -1 for latest, -2 for second latest)",
+    )
+    args = parser.parse_args()
+
+    if args.version is not None:
+        load(args.version)
+        exit()
+
+    # override default config
+    config = SIRConfig(
+        # Dataset parameters
+        collocation_points=8000,
+        # Network architecture
+        hidden_layers=[64, 128, 128, 64],
+        output_activation="softplus",
+        # Loss weights
+        pde_weight=10.0,
+        ic_weight=5.0,
+        data_weight=1.0,
+        # Training parameters
+        batch_size=256,
+        # Early stopping
+        early_stopping_enabled=True,
+        # SMMA stopping
+        smma_stopping_enabled=True,
+    )
+
+    train(config)
