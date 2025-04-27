@@ -1,0 +1,77 @@
+{
+  "name": "activation",
+  "description": "Evaluation of different output activation functions...",
+  "base_config": {
+    "N": 56000000.0,
+    "delta": 0.2,
+    "r0": 3.0,
+    "beta_true": 0.6000000000000001,
+    "initial_beta": 0.5,
+    "time_domain": [
+      0,
+      90
+    ],
+    "collocation_points": 6000,
+    "initial_conditions": [
+      1.0,
+      0.0
+    ],
+    "hidden_layers": [
+      50,
+      50,
+      50,
+      50
+    ],
+    "activation": "tanh",
+    "output_activation": "square",
+    "pde_weight": 1.0,
+    "ic_weight": 1.0,
+    "data_weight": 1.0,
+    "learning_rate": 0.001,
+    "batch_size": 100,
+    "max_epochs": 1000,
+    "gradient_clip_val": 0.1,
+    "scheduler_factor": 0.5,
+    "scheduler_patience": 65,
+    "scheduler_threshold": 0.005,
+    "scheduler_min_lr": 1e-06,
+    "early_stopping_enabled": false,
+    "early_stopping_patience": 100,
+    "smma_stopping_enabled": true,
+    "smma_window": 50,
+    "smma_threshold": 0.1,
+    "smma_lookback": 50,
+    "study_name": "activation",
+    "run_name": null
+  },
+  "variations": [
+    {
+      "name": "square",
+      "description": "Using square as output activation",
+      "config_updates": {
+        "output_activation": "square"
+      }
+    },
+    {
+      "name": "relu",
+      "description": "Using relu as output activation",
+      "config_updates": {
+        "output_activation": "relu"
+      }
+    },
+    {
+      "name": "sigmoid",
+      "description": "Using sigmoid as output activation",
+      "config_updates": {
+        "output_activation": "sigmoid"
+      }
+    },
+    {
+      "name": "softplus",
+      "description": "Using softplus as output activation",
+      "config_updates": {
+        "output_activation": "softplus"
+      }
+    }
+  ]
+}

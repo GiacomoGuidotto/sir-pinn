@@ -70,7 +70,7 @@ def create_ablation_configs() -> Dict[str, AblationConfig]:
                         "smma_threshold": 0.1,
                     },
                 )
-                for window in [25, 25, 25, 50, 50, 50, 75, 75, 75, 100, 100, 100]
+                for window in [25, 50, 75, 100]
             ],
             *[
                 ConfigVariation(
@@ -81,7 +81,7 @@ def create_ablation_configs() -> Dict[str, AblationConfig]:
                         "early_stopping_patience": patience,
                     },
                 )
-                for patience in [25, 25, 25, 50, 50, 50, 75, 75, 75]
+                for patience in [25, 50, 75]
             ],
         ],
     )
@@ -109,7 +109,6 @@ def create_ablation_configs() -> Dict[str, AblationConfig]:
         ],
     )
 
-    # TODO: replace with best activation config
     architecture_base_config = replace(
         activation_base_config,
         study_name="architecture",
@@ -182,18 +181,20 @@ def run_ablation_study(study_name: str):
 
     print(study.description)
 
+    repetitions = 3
     for variation in study.variations:
-        print(f"Variation: {variation.description}\n")
+        for run in range(repetitions):
+            print(f"[{run + 1}/{repetitions}] Variation: {variation.description}\n")
 
-        config = replace(study.base_config, **variation.config_updates)
-        config.run_name = variation.name
+            config = replace(study.base_config, **variation.config_updates)
+            config.run_name = variation.name
 
-        trained_model_path, version = train(config)
+            trained_model_path, version = train(config)
 
-        print(f"Saved version: {version}\n")
+            print(f"Saved version: {version}\n")
 
-        study_model_path = f"{study_dir}/{version}.ckpt"
-        shutil.copy(trained_model_path, study_model_path)
+            study_model_path = f"{study_dir}/{version}.ckpt"
+            shutil.copy(trained_model_path, study_model_path)
 
 
 if __name__ == "__main__":
