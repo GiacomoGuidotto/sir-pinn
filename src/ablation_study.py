@@ -45,9 +45,8 @@ class AblationConfig:
 def create_ablation_configs() -> Dict[str, AblationConfig]:
     """Create configurations for the ablation study."""
 
-    # Base configuration that will be modified for each test
     stopping_base_config = SIRConfig(
-        name="stopping",
+        study_name="stopping",
     )
 
     stopping_study = AblationConfig(
@@ -71,7 +70,7 @@ def create_ablation_configs() -> Dict[str, AblationConfig]:
                         "smma_threshold": 0.1,
                     },
                 )
-                for window in [25, 50, 75]
+                for window in [25, 25, 25, 50, 50, 50, 75, 75, 75, 100, 100, 100]
             ],
             *[
                 ConfigVariation(
@@ -82,17 +81,18 @@ def create_ablation_configs() -> Dict[str, AblationConfig]:
                         "early_stopping_patience": patience,
                     },
                 )
-                for patience in [25, 50, 75]
+                for patience in [25, 25, 25, 50, 50, 50, 75, 75, 75]
             ],
         ],
     )
 
-    # TODO: replace with best stopping config
     activation_base_config = replace(
         stopping_base_config,
-        name="activation",
-        early_stopping_enabled=True,
-        early_stopping_patience=50,
+        study_name="activation",
+        smma_stopping_enabled=True,
+        smma_window=50,
+        smma_lookback=50,
+        smma_threshold=0.1,
     )
 
     activation_study = AblationConfig(
@@ -112,7 +112,7 @@ def create_ablation_configs() -> Dict[str, AblationConfig]:
     # TODO: replace with best activation config
     architecture_base_config = replace(
         activation_base_config,
-        name="architecture",
+        study_name="architecture",
         output_activation="softplus",
     )
 
@@ -138,7 +138,7 @@ def create_ablation_configs() -> Dict[str, AblationConfig]:
     # TODO: replace with best architecture config
     batch_base_config = replace(
         architecture_base_config,
-        name="batch_size",
+        study_name="batch_size",
         early_stopping_enabled=True,
         early_stopping_patience=50,
         output_activation="softplus",
@@ -186,10 +186,13 @@ def run_ablation_study(study_name: str):
         print(f"Variation: {variation.description}\n")
 
         config = replace(study.base_config, **variation.config_updates)
+        config.run_name = variation.name
 
         trained_model_path, version = train(config)
 
-        study_model_path = f"{study_dir}/v{version}_{variation.name}.ckpt"
+        print(f"Saved version: {version}\n")
+
+        study_model_path = f"{study_dir}/{version}.ckpt"
         shutil.copy(trained_model_path, study_model_path)
 
 

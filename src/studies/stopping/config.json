@@ -41,7 +41,8 @@
     "smma_window": 50,
     "smma_threshold": 0.1,
     "smma_lookback": 50,
-    "name": "stopping"
+    "study_name": "stopping",
+    "run_name": null
   },
   "variations": [
     {
@@ -56,6 +57,46 @@
         "smma_stopping_enabled": true,
         "smma_window": 25,
         "smma_lookback": 25,
+        "smma_threshold": 0.1
+      }
+    },
+    {
+      "name": "smma_w25",
+      "description": "SMMA stopping with window=25, lookback=25",
+      "config_updates": {
+        "smma_stopping_enabled": true,
+        "smma_window": 25,
+        "smma_lookback": 25,
+        "smma_threshold": 0.1
+      }
+    },
+    {
+      "name": "smma_w25",
+      "description": "SMMA stopping with window=25, lookback=25",
+      "config_updates": {
+        "smma_stopping_enabled": true,
+        "smma_window": 25,
+        "smma_lookback": 25,
+        "smma_threshold": 0.1
+      }
+    },
+    {
+      "name": "smma_w50",
+      "description": "SMMA stopping with window=50, lookback=50",
+      "config_updates": {
+        "smma_stopping_enabled": true,
+        "smma_window": 50,
+        "smma_lookback": 50,
+        "smma_threshold": 0.1
+      }
+    },
+    {
+      "name": "smma_w50",
+      "description": "SMMA stopping with window=50, lookback=50",
+      "config_updates": {
+        "smma_stopping_enabled": true,
+        "smma_window": 50,
+        "smma_lookback": 50,
         "smma_threshold": 0.1
       }
     },
@@ -80,6 +121,72 @@
       }
     },
     {
+      "name": "smma_w75",
+      "description": "SMMA stopping with window=75, lookback=75",
+      "config_updates": {
+        "smma_stopping_enabled": true,
+        "smma_window": 75,
+        "smma_lookback": 75,
+        "smma_threshold": 0.1
+      }
+    },
+    {
+      "name": "smma_w75",
+      "description": "SMMA stopping with window=75, lookback=75",
+      "config_updates": {
+        "smma_stopping_enabled": true,
+        "smma_window": 75,
+        "smma_lookback": 75,
+        "smma_threshold": 0.1
+      }
+    },
+    {
+      "name": "smma_w100",
+      "description": "SMMA stopping with window=100, lookback=100",
+      "config_updates": {
+        "smma_stopping_enabled": true,
+        "smma_window": 100,
+        "smma_lookback": 100,
+        "smma_threshold": 0.1
+      }
+    },
+    {
+      "name": "smma_w100",
+      "description": "SMMA stopping with window=100, lookback=100",
+      "config_updates": {
+        "smma_stopping_enabled": true,
+        "smma_window": 100,
+        "smma_lookback": 100,
+        "smma_threshold": 0.1
+      }
+    },
+    {
+      "name": "smma_w100",
+      "description": "SMMA stopping with window=100, lookback=100",
+      "config_updates": {
+        "smma_stopping_enabled": true,
+        "smma_window": 100,
+        "smma_lookback": 100,
+        "smma_threshold": 0.1
+      }
+    },
+    {
+      "name": "early_stopping_p25",
+      "description": "Early stopping with patience=25",
+      "config_updates": {
+        "early_stopping_enabled": true,
+        "early_stopping_patience": 25
+      }
+    },
+    {
+      "name": "early_stopping_p25",
+      "description": "Early stopping with patience=25",
+      "config_updates": {
+        "early_stopping_enabled": true,
+        "early_stopping_patience": 25
+      }
+    },
+    {
       "name": "early_stopping_p25",
       "description": "Early stopping with patience=25",
       "config_updates": {
@@ -93,6 +200,38 @@
       "config_updates": {
         "early_stopping_enabled": true,
         "early_stopping_patience": 50
+      }
+    },
+    {
+      "name": "early_stopping_p50",
+      "description": "Early stopping with patience=50",
+      "config_updates": {
+        "early_stopping_enabled": true,
+        "early_stopping_patience": 50
+      }
+    },
+    {
+      "name": "early_stopping_p50",
+      "description": "Early stopping with patience=50",
+      "config_updates": {
+        "early_stopping_enabled": true,
+        "early_stopping_patience": 50
+      }
+    },
+    {
+      "name": "early_stopping_p75",
+      "description": "Early stopping with patience=75",
+      "config_updates": {
+        "early_stopping_enabled": true,
+        "early_stopping_patience": 75
+      }
+    },
+    {
+      "name": "early_stopping_p75",
+      "description": "Early stopping with patience=75",
+      "config_updates": {
+        "early_stopping_enabled": true,
+        "early_stopping_patience": 75
       }
     },
     {

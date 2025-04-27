@@ -78,7 +78,8 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass, field
-from typing import List, Tuple, Dict
+from typing import List, Optional, Tuple, Dict
+import glob
 
 # third-party
 import matplotlib.pyplot as plt
@@ -207,22 +208,22 @@ def si_re(pred: SIRData, true: SIRData) -> float:
 
 def evaluate_sir(
     sir_true: SIRData,
-    predictions: List[Tuple[str, SIRData]],
-) -> List[Tuple[str, Dict[str, float]]]:
+    predictions: List[Tuple[str, str, SIRData]],
+) -> List[Tuple[str, str, Dict[str, float]]]:
     """Evaluate SIR model predictions against ground truth data.
 
     Args:
         sir_true: Ground truth SIR data
-        predictions: List of tuples containing (model_name, predicted_sir_data)
+        predictions: List of tuples containing (model_name, version, predicted_sir_data)
 
     Returns:
-        List of tuples containing (model_name, metrics_dict) where metrics_dict includes:
+        List of tuples containing (model_name, version, metrics_dict) where metrics_dict includes:
         - SI_RE: Relative error of concatenated S-I vectors
         - Beta prediction error and percentage error
     """
     version_metrics = []
 
-    for name, sir_pred in predictions:
+    for name, version, sir_pred in predictions:
         metrics = {}
 
         metrics["si_re"] = si_re(sir_pred, sir_true)
@@ -234,7 +235,7 @@ def evaluate_sir(
         metrics["beta_error"] = beta_error
         metrics["beta_error_percent"] = beta_error_percent
 
-        version_metrics.append((name, metrics))
+        version_metrics.append((name, version, metrics))
 
     return version_metrics
 
@@ -242,14 +243,14 @@ def evaluate_sir(
 def plot_sir_dynamics(
     t: np.ndarray,
     sir_true: SIRData,
-    predictions: List[Tuple[str, SIRData]],
+    predictions: List[Tuple[str, str, SIRData]],
 ) -> Figure:
     """Create visualization of SIR dynamics.
 
     Args:
         t: Time points
         sir_true: True SIR values
-        predictions: List of tuples containing (name, predicted SIR values)
+        predictions: List of tuples containing (name, version, predicted SIR values)
 
     Returns:
         Matplotlib figure with the visualization
@@ -264,8 +265,8 @@ def plot_sir_dynamics(
     sns.lineplot(x=t, y=sir_true.r, label="$R_{\\mathrm{true}}$", color=color)
 
     # Plot predictions
-    for i, (name, sir_pred) in enumerate(predictions):
-        subscript = f"_{{{name}}}" if len(predictions) > 1 else "_{pred}"
+    for i, (_, version, sir_pred) in enumerate(predictions):
+        subscript = f"_{{{version}}}" if len(predictions) > 1 else "_{pred}"
         new_color_idx = (color_idx + (i + 1) / (len(predictions) + 1)) % 1
         color = color_map(new_color_idx)
 
@@ -288,11 +289,11 @@ def plot_sir_dynamics(
     return fig
 
 
-def print_metrics(version_metrics: List[Tuple[str, Dict[str, float]]]):
+def print_metrics(version_metrics: List[Tuple[str, str, Dict[str, float]]]):
     """Print evaluation metrics in a formatted table.
 
     Args:
-        version_metrics: List of tuples containing (model_name, metrics_dict) where
+        version_metrics: List of tuples containing (model_name, version, metrics_dict) where
             metrics_dict contains SI relative error and beta metrics
     """
     if not version_metrics:
@@ -310,20 +311,20 @@ def print_metrics(version_metrics: List[Tuple[str, Dict[str, float]]]):
     metric_name_width = max(len(name) for name in metric_names)
     metric_name_width = max(metric_name_width, 6)  # len("metric")
 
-    values_width = max(len(name) for name, _ in version_metrics)
+    values_width = max(len(name) for name, _, _ in version_metrics)
     values_width = max(values_width, 9)  # len("1.23e+05%")
 
     header = f"| {'metric':<{metric_name_width}} |"
     subheader = f"| {'-' * metric_name_width} |"
-    for name, _ in version_metrics:
-        header += f" {name:^{values_width}} |"
+    for name, _, _ in version_metrics:
+        header += f" {name:<{values_width}} |"
         subheader += f" {'-' * (values_width)} |"
     print(header)
     print(subheader)
 
     for metric in metric_names:
         row = f"| {metric:<{metric_name_width}} |"
-        for _, metrics in version_metrics:
+        for _, _, metrics in version_metrics:
             value = metrics.get(metric)
             formatted_value = ""
             if value is None:
@@ -398,7 +399,9 @@ class SIRConfig:
     smma_threshold: float = 0.1
     smma_lookback: int = 50
 
-    name: str = "tests"
+    # Logging parameters
+    study_name: str = "tests"
+    run_name: Optional[str] = None
 
 
 # %% [markdown]
@@ -729,7 +732,7 @@ class SIRPINN(LightningModule):
         sir_pred = SIRData(*self.predict_sir(self.t_true).T, beta=self.beta.item())
         si_re_val = si_re(sir_pred, self.sir_true)
 
-        self.log("train/si_re", si_re_val)
+        self.log("val/si_re", si_re_val)
 
     @torch.no_grad()
     def predict_sir(self, t):
@@ -877,7 +880,7 @@ class SIREvaluation(Callback):
 
         sir_pred = SIRData(*module.predict_sir(self.t).T, beta=module.beta.item())
 
-        fig = plot_sir_dynamics(self.t, self.sir_true, [("", sir_pred)])
+        fig = plot_sir_dynamics(self.t, self.sir_true, [("", "", sir_pred)])
         tb_logger.add_figure("sir_dynamics", fig, global_step=trainer.global_step)
         plt.close(fig)
 
@@ -912,7 +915,7 @@ class SIREvaluation(Callback):
 
 
 # %%
-def train(config: SIRConfig) -> Tuple[str, int]:
+def train(config: SIRConfig) -> Tuple[str, str]:
     """Train a new SIR PINN model with the given configuration.
 
     Args:
@@ -992,15 +995,20 @@ def train(config: SIRConfig) -> Tuple[str, int]:
             ),
         )
 
+    version = f"v{len(os.listdir(saved_models_dir))}"
+    if config.run_name is not None:
+        version = f"{version}_{config.run_name}"
+
     loggers = [
         TensorBoardLogger(
             save_dir=tensorboard_dir,
-            name=config.name,
-            default_hp_metric=False,
+            name=config.study_name,
+            version=version,
         ),
         CSVLogger(
             save_dir=csv_dir,
-            name=config.name,
+            name=config.study_name,
+            version=version,
         ),
     ]
 
@@ -1015,8 +1023,7 @@ def train(config: SIRConfig) -> Tuple[str, int]:
     trainer.fit(model, data_loader)
 
     model = SIRPINN.load_from_checkpoint(checkpoint_callback.best_model_path)
-    version = len(os.listdir(saved_models_dir))
-    model_path = saved_models_dir + f"/version_{version}.ckpt"
+    model_path = saved_models_dir + f"/{version}.ckpt"
     trainer.save_checkpoint(model_path)
 
     if os.path.exists(checkpoints_dir):
@@ -1040,17 +1047,20 @@ def load(versions: List[int]) -> None:
     predictions = []
 
     for version in versions:
-        model_path = saved_models_dir + f"/version_{version}.ckpt"
-
-        if not os.path.exists(model_path):
+        model_path = saved_models_dir + f"/v{version}_*.ckpt"
+        matching_files = glob.glob(model_path)
+        if not matching_files:
             raise FileNotFoundError(f"Model version {version} not found")
+
+        model_path = max(matching_files, key=os.path.getctime)
+        model_name = os.path.basename(model_path).replace(".ckpt", "")
 
         model = SIRPINN.load_from_checkpoint(model_path)
 
         t, sir_true, _ = generate_sir_data(model.config)
         sir_pred = SIRData(*model.predict_sir(t).T, beta=model.beta.item())
 
-        predictions.append((f"version_{{{version}}}", sir_pred))
+        predictions.append((model_name, f"v{version}", sir_pred))
 
     metrics = evaluate_sir(sir_true, predictions)
     print_metrics(metrics)
