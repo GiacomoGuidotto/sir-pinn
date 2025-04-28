@@ -120,11 +120,11 @@ def create_ablation_configs() -> Dict[str, AblationConfig]:
         for neurons in [16, 32, 50, 64]:
             hidden_layers = [neurons] * num_layers
             variations.append(
-                {
-                    "name": f"arch_l{num_layers}_n{neurons}",
-                    "description": f"Architecture with {num_layers} layers and {neurons} neurons each",
-                    "config_updates": {"hidden_layers": hidden_layers},
-                }
+                ConfigVariation(
+                    name=f"arch_l{num_layers}_n{neurons}",
+                    description=f"Architecture with {num_layers} layers and {neurons} neurons each",
+                    config_updates={"hidden_layers": hidden_layers},
+                )
             )
 
     architecture_study = AblationConfig(
@@ -138,9 +138,6 @@ def create_ablation_configs() -> Dict[str, AblationConfig]:
     batch_base_config = replace(
         architecture_base_config,
         study_name="batch_size",
-        early_stopping_enabled=True,
-        early_stopping_patience=50,
-        output_activation="softplus",
     )
 
     batch_study = AblationConfig(
