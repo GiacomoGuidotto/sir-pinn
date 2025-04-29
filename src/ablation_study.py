@@ -115,26 +115,32 @@ def create_ablation_configs() -> Dict[str, AblationConfig]:
         output_activation="softplus",
     )
 
-    variations = []
-    for num_layers in [2, 3, 4, 5]:
-        for neurons in [16, 32, 50, 64]:
-            hidden_layers = [neurons] * num_layers
-            variations.append(
-                ConfigVariation(
-                    name=f"arch_l{num_layers}_n{neurons}",
-                    description=f"Architecture with {num_layers} layers and {neurons} neurons each",
-                    config_updates={"hidden_layers": hidden_layers},
-                )
-            )
-
     architecture_study = AblationConfig(
         name="architecture",
         description="Evaluation of different network architectures...",
         base_config=architecture_base_config,
-        variations=variations,
+        variations=[
+            ConfigVariation(
+                name=f"arch_l{num_layers}_n{neurons}",
+                description=f"Architecture: {num_layers} layers, {neurons} neurons each",
+                config_updates={
+                    "hidden_layers": [neurons] * num_layers,
+                },
+            )
+            for neurons in [16, 32, 50, 64]
+            for num_layers in [2, 3, 4, 5]
+        ],
     )
 
-    # TODO: replace with best architecture config
+    chosen_architectures = [
+        # (3, 50),
+        # (3, 64),
+        (4, 50),
+        (5, 16),
+        # (5, 32),
+        (5, 64),
+    ]
+
     batch_base_config = replace(
         architecture_base_config,
         study_name="batch_size",
@@ -146,11 +152,15 @@ def create_ablation_configs() -> Dict[str, AblationConfig]:
         base_config=batch_base_config,
         variations=[
             ConfigVariation(
-                name=f"batch_{size}",
-                description=f"Training with batch size {size}",
-                config_updates={"batch_size": size},
+                name=f"batch_{size}_l{num_layers}_n{neurons}",
+                description=f"Architecture: {num_layers} layers, {neurons} neurons each. Training with batch size {size}",
+                config_updates={
+                    "batch_size": size,
+                    "hidden_layers": [neurons] * num_layers,
+                },
             )
             for size in [100, 256, 512]
+            for num_layers, neurons in chosen_architectures
         ],
     )
 

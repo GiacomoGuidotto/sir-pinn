@@ -1,0 +1,172 @@
+{
+  "name": "batch_size",
+  "description": "Evaluation of different batch sizes on top architectures...",
+  "base_config": {
+    "N": 56000000.0,
+    "delta": 0.2,
+    "r0": 3.0,
+    "beta_true": 0.6000000000000001,
+    "initial_beta": 0.5,
+    "time_domain": [
+      0,
+      90
+    ],
+    "collocation_points": 6000,
+    "initial_conditions": [
+      1.0,
+      0.0
+    ],
+    "hidden_layers": [
+      50,
+      50,
+      50,
+      50
+    ],
+    "activation": "tanh",
+    "output_activation": "softplus",
+    "pde_weight": 1.0,
+    "ic_weight": 1.0,
+    "data_weight": 1.0,
+    "learning_rate": 0.001,
+    "batch_size": 100,
+    "max_epochs": 1000,
+    "gradient_clip_val": 0.1,
+    "scheduler_factor": 0.5,
+    "scheduler_patience": 65,
+    "scheduler_threshold": 0.005,
+    "scheduler_min_lr": 1e-06,
+    "early_stopping_enabled": false,
+    "early_stopping_patience": 100,
+    "smma_stopping_enabled": true,
+    "smma_window": 50,
+    "smma_threshold": 0.1,
+    "smma_lookback": 50,
+    "study_name": "batch_size",
+    "run_name": null
+  },
+  "variations": [
+    {
+      "name": "batch_100_l4_n50",
+      "description": "Architecture: 4 layers, 50 neurons each. Training with batch size 100",
+      "config_updates": {
+        "batch_size": 100,
+        "hidden_layers": [
+          50,
+          50,
+          50,
+          50
+        ]
+      }
+    },
+    {
+      "name": "batch_100_l5_n16",
+      "description": "Architecture: 5 layers, 16 neurons each. Training with batch size 100",
+      "config_updates": {
+        "batch_size": 100,
+        "hidden_layers": [
+          16,
+          16,
+          16,
+          16,
+          16
+        ]
+      }
+    },
+    {
+      "name": "batch_100_l5_n64",
+      "description": "Architecture: 5 layers, 64 neurons each. Training with batch size 100",
+      "config_updates": {
+        "batch_size": 100,
+        "hidden_layers": [
+          64,
+          64,
+          64,
+          64,
+          64
+        ]
+      }
+    },
+    {
+      "name": "batch_256_l4_n50",
+      "description": "Architecture: 4 layers, 50 neurons each. Training with batch size 256",
+      "config_updates": {
+        "batch_size": 256,
+        "hidden_layers": [
+          50,
+          50,
+          50,
+          50
+        ]
+      }
+    },
+    {
+      "name": "batch_256_l5_n16",
+      "description": "Architecture: 5 layers, 16 neurons each. Training with batch size 256",
+      "config_updates": {
+        "batch_size": 256,
+        "hidden_layers": [
+          16,
+          16,
+          16,
+          16,
+          16
+        ]
+      }
+    },
+    {
+      "name": "batch_256_l5_n64",
+      "description": "Architecture: 5 layers, 64 neurons each. Training with batch size 256",
+      "config_updates": {
+        "batch_size": 256,
+        "hidden_layers": [
+          64,
+          64,
+          64,
+          64,
+          64
+        ]
+      }
+    },
+    {
+      "name": "batch_512_l4_n50",
+      "description": "Architecture: 4 layers, 50 neurons each. Training with batch size 512",
+      "config_updates": {
+        "batch_size": 512,
+        "hidden_layers": [
+          50,
+          50,
+          50,
+          50
+        ]
+      }
+    },
+    {
+      "name": "batch_512_l5_n16",
+      "description": "Architecture: 5 layers, 16 neurons each. Training with batch size 512",
+      "config_updates": {
+        "batch_size": 512,
+        "hidden_layers": [
+          16,
+          16,
+          16,
+          16,
+          16
+        ]
+      }
+    },
+    {
+      "name": "batch_512_l5_n64",
+      "description": "Architecture: 5 layers, 64 neurons each. Training with batch size 512",
+      "config_updates": {
+        "batch_size": 512,
+        "hidden_layers": [
+          64,
+          64,
+          64,
+          64,
+          64
+        ]
+      }
+    }
+  ]
+}
