@@ -1,0 +1,37 @@
+{
+    "variations": [
+        {
+            "title": "Early stopping with patience=25",
+            "file_name": "early_stopping_p25",
+            "legend_description": "Early stopping p=25"
+        },
+        {
+            "title": "Early stopping with patience=50",
+            "file_name": "early_stopping_p50",
+            "legend_description": "Early stopping p=50"
+        },
+        {
+            "title": "Early stopping with patience=75",
+            "file_name": "early_stopping_p75",
+            "legend_description": "Early stopping p=75"
+        }
+    ],
+    "reference": {
+        "version": "v1",
+        "legend_description": "No Stopping"
+    },
+    "metrics": [
+        {
+            "col": "train/total_loss_smma",
+            "title": "SMMA Loss",
+            "log_scale": true,
+            "legend_loc": "upper right"
+        },
+        {
+            "col": "train/beta",
+            "title": "Beta",
+            "log_scale": false,
+            "legend_loc": "lower right"
+        }
+    ]
+}

@@ -1,5 +1,4 @@
 {
-    "name": "smma_comparison.png",
     "variations": [
         {
             "title": "SMMA stopping with window=25, lookback=25",

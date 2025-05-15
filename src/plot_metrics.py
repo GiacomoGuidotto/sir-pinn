@@ -36,7 +36,6 @@ class Metric:
 
 @dataclass
 class PlotConfig:
-    name: str
     variations: List[Variation]
     reference: Reference
     metrics: List[Metric]
@@ -45,7 +44,6 @@ class PlotConfig:
     def from_dict(cls, data: Dict) -> "PlotConfig":
         """Create a PlotConfig from a dictionary."""
         return cls(
-            name=data["name"],
             variations=[Variation(**v) for v in data["variations"]],
             reference=Reference(**data["reference"]),
             metrics=[Metric(**m) for m in data["metrics"]],
@@ -83,8 +81,9 @@ def load_metrics(
     ref_pattern = os.path.join(LOG_DIR, "csv", "**", f"*{reference.version}_*")
     ref_folders = find_folders(ref_pattern)
 
+    variation_names = [os.path.basename(folder) for folder in folders]
     print(
-        f"Plot \"{variation.file_name}\", reference {reference.version}: plotting {', '.join(folders)}..."
+        f"Plot \"{variation.file_name}\", reference {reference.version}: plotting {', '.join(variation_names)}..."
     )
 
     ref_df = load_dataframe(ref_folders[0])
@@ -134,7 +133,7 @@ def plot_metric(
             ref_df_plot[y_col],
             color="gray",
             linestyle="--",
-            label=f"({reference.version}) {reference.legend_description} (reference)",
+            label=f"{reference.legend_description} (reference)",
         )
 
     for version, group in df_plot.groupby("version"):
@@ -142,7 +141,7 @@ def plot_metric(
         ax.plot(
             group[x_col],
             group[y_col],
-            label=f"({v_num}) {variation.legend_description}",
+            label=f"{variation.legend_description} ({v_num})",
             alpha=0.7,
         )
 
@@ -221,7 +220,7 @@ def main():
             variations=config.variations,
             reference=config.reference,
             metrics=config.metrics,
-            output_name=config.name,
+            output_name=os.path.basename(config_file).replace(".json", ".png"),
         )
 
 

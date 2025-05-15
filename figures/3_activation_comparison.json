@@ -1,0 +1,42 @@
+{
+    "variations": [
+        {
+            "title": "Square output activation",
+            "file_name": "square",
+            "legend_description": "Square"
+        },
+        {
+            "title": "ReLU output activation",
+            "file_name": "relu",
+            "legend_description": "ReLU"
+        },
+        {
+            "title": "Sigmoid output activation",
+            "file_name": "sigmoid",
+            "legend_description": "Sigmoid"
+        },
+        {
+            "title": "Softplus output activation",
+            "file_name": "softplus",
+            "legend_description": "Softplus"
+        }
+    ],
+    "reference": {
+        "version": "v5",
+        "legend_description": "SMMA w=50"
+    },
+    "metrics": [
+        {
+            "col": "train/total_loss_smma",
+            "title": "SMMA Loss",
+            "log_scale": true,
+            "legend_loc": "upper right"
+        },
+        {
+            "col": "train/beta",
+            "title": "Beta",
+            "log_scale": false,
+            "legend_loc": "lower right"
+        }
+    ]
+}

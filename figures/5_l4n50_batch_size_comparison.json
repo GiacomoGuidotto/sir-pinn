@@ -1,0 +1,37 @@
+{
+    "variations": [
+        {
+            "title": "Batch size: 100",
+            "file_name": "batch_100_l4_n50",
+            "legend_description": "Batch size 100"
+        },
+        {
+            "title": "Batch size: 256",
+            "file_name": "batch_256_l4_n50",
+            "legend_description": "Batch size 256"
+        },
+        {
+            "title": "Batch size: 512",
+            "file_name": "batch_512_l4_n50",
+            "legend_description": "Batch size 512"
+        }
+    ],
+    "reference": {
+        "version": "v66",
+        "legend_description": "4 x 50 architecture"
+    },
+    "metrics": [
+        {
+            "col": "train/total_loss_smma",
+            "title": "SMMA Loss",
+            "log_scale": true,
+            "legend_loc": "upper right"
+        },
+        {
+            "col": "train/beta",
+            "title": "Beta",
+            "log_scale": false,
+            "legend_loc": "lower right"
+        }
+    ]
+}
