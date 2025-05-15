@@ -38,5 +38,12 @@
             "log_scale": false,
             "legend_loc": "lower right"
         }
+    ],
+    "evaluated": [
+        {
+            "title": "SMMA stopping with window=50, lookback=50",
+            "file_name": "smma_w50",
+            "legend_description": "SMMA w=50"
+        }
     ]
 }

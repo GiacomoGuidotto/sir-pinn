@@ -38,5 +38,12 @@
             "log_scale": false,
             "legend_loc": "lower right"
         }
+    ],
+    "evaluated": [
+        {
+            "title": "Softplus output activation",
+            "file_name": "softplus",
+            "legend_description": "Softplus"
+        }
     ]
 }

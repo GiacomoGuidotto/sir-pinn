@@ -33,5 +33,17 @@
             "log_scale": false,
             "legend_loc": "lower right"
         }
+    ],
+    "evaluated": [
+        {
+            "title": "Architecture: 4 layers, 50 neurons each",
+            "file_name": "arch_l4_n50",
+            "legend_description": "4 x 50 architecture"
+        },
+        {
+            "title": "Architecture: 5 layers, 64 neurons each",
+            "file_name": "arch_l5_n64",
+            "legend_description": "5 x 64 architecture"
+        }
     ]
 }

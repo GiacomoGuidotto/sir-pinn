@@ -73,13 +73,11 @@
 
 # %%
 # std
-import argparse
 import os
 import shutil
 import subprocess
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Dict
-import glob
+from typing import List, Optional, Tuple
 
 # third-party
 import matplotlib.pyplot as plt
@@ -98,7 +96,6 @@ from lightning.pytorch.callbacks import (
 )
 from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
 from scipy.integrate import odeint
-from sklearn.metrics import mean_absolute_percentage_error
 from torch.utils.data import Dataset, DataLoader
 
 sns.set_theme(style="darkgrid")
@@ -202,40 +199,6 @@ def si_re(pred: SIRData, true: SIRData) -> float:
     )
 
 
-def evaluate_sir(
-    sir_true: SIRData,
-    predictions: List[Tuple[str, str, SIRData]],
-) -> List[Tuple[str, str, Dict[str, float]]]:
-    """Evaluate SIR model predictions against ground truth data.
-
-    Args:
-        sir_true: Ground truth SIR data
-        predictions: List of tuples containing (model_name, version, predicted_sir_data)
-
-    Returns:
-        List of tuples containing (model_name, version, metrics_dict) where metrics_dict includes:
-        - SI_RE: Relative error of concatenated S-I vectors
-        - Beta prediction error and percentage error
-    """
-    version_metrics = []
-
-    for name, version, sir_pred in predictions:
-        metrics = {}
-
-        metrics["si_re"] = si_re(sir_pred, sir_true)
-
-        beta_error = abs(sir_pred.beta - sir_true.beta)
-        beta_error_percent = beta_error / sir_true.beta * 100
-        metrics["beta_true"] = sir_true.beta
-        metrics["beta_pred"] = sir_pred.beta
-        metrics["beta_error"] = beta_error
-        metrics["beta_error_percent"] = beta_error_percent
-
-        version_metrics.append((name, version, metrics))
-
-    return version_metrics
-
-
 def plot_sir_dynamics(
     t: np.ndarray,
     sir_true: SIRData,
@@ -283,59 +246,6 @@ def plot_sir_dynamics(
     plt.tight_layout()
 
     return fig
-
-
-def print_metrics(version_metrics: List[Tuple[str, str, Dict[str, float]]]):
-    """Print evaluation metrics in a formatted table.
-
-    Args:
-        version_metrics: List of tuples containing (model_name, version, metrics_dict) where
-            metrics_dict contains SI relative error and beta metrics
-    """
-    if not version_metrics:
-        print("No metrics to display.")
-        return
-
-    metric_names = [
-        "si_re",
-        "beta_pred",
-        "beta_true",
-        "beta_error",
-        "beta_error_percent",
-    ]
-
-    metric_name_width = max(len(name) for name in metric_names)
-    metric_name_width = max(metric_name_width, 6)  # len("metric")
-
-    values_width = max(len(name) for name, _, _ in version_metrics)
-    values_width = max(values_width, 9)  # len("1.23e+05%")
-
-    header = f"| {'metric':<{metric_name_width}} |"
-    subheader = f"| {'-' * metric_name_width} |"
-    for name, _, _ in version_metrics:
-        header += f" {name:<{values_width}} |"
-        subheader += f" {'-' * (values_width)} |"
-    print(header)
-    print(subheader)
-
-    for metric in metric_names:
-        row = f"| {metric:<{metric_name_width}} |"
-        for _, _, metrics in version_metrics:
-            value = metrics.get(metric)
-            formatted_value = ""
-            if value is None:
-                formatted_value = " N/A"
-            elif metric == "si_re":
-                formatted_value = f"{value:.2e}"
-            elif "_error_percent" in metric:
-                formatted_value = f"{value:.5f}%"
-            elif "_error" in metric:
-                formatted_value = f"{value:.2e}"
-            else:
-                formatted_value = f"{value:.6f}"
-
-            row += f" {formatted_value:>{values_width}} |"
-        print(row)
 
 
 # %% [markdown]
@@ -920,6 +830,10 @@ def train(config: SIRConfig) -> Tuple[str, str]:
     Returns:
         Tuple of the path to the saved model and the version number
     """
+    os.makedirs(LOG_DIR, exist_ok=True)
+    os.makedirs(TENSORBOARD_DIR, exist_ok=True)
+    os.makedirs(CSV_DIR, exist_ok=True)
+    os.makedirs(SAVED_MODELS_DIR, exist_ok=True)
     subprocess.Popen(
         ["tensorboard", "--logdir", TENSORBOARD_DIR],
         stdout=subprocess.DEVNULL,
@@ -1018,8 +932,7 @@ def train(config: SIRConfig) -> Tuple[str, str]:
 
     trainer.fit(model, data_loader)
 
-    model = SIRPINN.load_from_checkpoint(checkpoint_callback.best_model_path)
-    model_path = SAVED_MODELS_DIR + f"/{version}.ckpt"
+    model_path = os.path.join(SAVED_MODELS_DIR, f"{version}.ckpt")
     trainer.save_checkpoint(model_path)
 
     if os.path.exists(CHECKPOINTS_DIR):
@@ -1028,65 +941,7 @@ def train(config: SIRConfig) -> Tuple[str, str]:
     return model_path, version
 
 
-def load(versions: List[int]) -> None:
-    """Load and evaluate specified model versions.
-
-    Args:
-        versions: List of version numbers to load. Negative numbers count from the end
-                 (e.g., -1 for latest, -2 for second latest, etc.)
-    """
-    latest_version = len(os.listdir(SAVED_MODELS_DIR)) - 1
-    if latest_version < 0:
-        raise FileNotFoundError("No saved models found")
-
-    versions = [v if v >= 0 else latest_version + v + 1 for v in versions]
-    predictions = []
-
-    for version in versions:
-        model_path = SAVED_MODELS_DIR + f"/v{version}_*.ckpt"
-        matching_files = glob.glob(model_path)
-        if not matching_files:
-            raise FileNotFoundError(f"Model version {version} not found")
-
-        model_path = max(matching_files, key=os.path.getctime)
-        model_name = os.path.basename(model_path).replace(".ckpt", "")
-
-        model = SIRPINN.load_from_checkpoint(model_path)
-
-        t, sir_true, _ = generate_sir_data(model.config)
-        sir_pred = SIRData(*model.predict_sir(t).T, beta=model.beta.item())
-
-        predictions.append((model_name, f"v{version}", sir_pred))
-
-    metrics = evaluate_sir(sir_true, predictions)
-    print_metrics(metrics)
-
-    fig = plot_sir_dynamics(t, sir_true, predictions)
-    plt.show()
-    plt.close(fig)
-
-
 if __name__ == "__main__":
-    os.makedirs(LOG_DIR, exist_ok=True)
-    os.makedirs(TENSORBOARD_DIR, exist_ok=True)
-    os.makedirs(CSV_DIR, exist_ok=True)
-    os.makedirs(SAVED_MODELS_DIR, exist_ok=True)
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "-v",
-        "--version",
-        type=int,
-        nargs="+",
-        help="Version number(s) of the model(s) to load for evaluation. "
-        "Negative numbers count from the end (e.g., -1 for latest, -2 for second latest)",
-    )
-    args = parser.parse_args()
-
-    if args.version is not None:
-        load(args.version)
-        exit()
-
     # override default config
     config = SIRConfig(
         # Dataset parameters

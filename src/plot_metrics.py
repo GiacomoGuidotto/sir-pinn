@@ -5,13 +5,21 @@ from dataclasses import dataclass
 from typing import List, Tuple, Dict, Optional
 
 import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
 import pandas as pd
 import seaborn as sns
 
+from sir_pinn import (
+    SIRPINN,
+    SIRData,
+    generate_sir_data,
+    si_re,
+    SAVED_MODELS_DIR,
+    LOG_DIR,
+)
+
 
 FIGURES_DIR = "./figures"
-LOG_DIR = "./data/logs"
+
 
 @dataclass
 class Variation:
@@ -39,6 +47,7 @@ class PlotConfig:
     variations: List[Variation]
     reference: Reference
     metrics: List[Metric]
+    evaluated: List[Variation]
 
     @classmethod
     def from_dict(cls, data: Dict) -> "PlotConfig":
@@ -47,7 +56,14 @@ class PlotConfig:
             variations=[Variation(**v) for v in data["variations"]],
             reference=Reference(**data["reference"]),
             metrics=[Metric(**m) for m in data["metrics"]],
+            evaluated=[Variation(**v) for v in data["evaluated"]],
         )
+
+
+@dataclass
+class Prediction:
+    name: str
+    sir_data: SIRData
 
 
 def find_folders(pattern: str) -> List[str]:
@@ -116,7 +132,6 @@ def plot_metric(
     ax,
     df: pd.DataFrame,
     ref_df: pd.DataFrame,
-    x_col: str,
     y_col: str,
     title: str,
     variation: Variation,
@@ -129,7 +144,7 @@ def plot_metric(
 
     if not ref_df_plot.empty:
         ax.plot(
-            ref_df_plot[x_col],
+            ref_df_plot["epoch"],
             ref_df_plot[y_col],
             color="gray",
             linestyle="--",
@@ -139,7 +154,7 @@ def plot_metric(
     for version, group in df_plot.groupby("version"):
         v_num = str(version).split("_")[0] if "_" in str(version) else str(version)
         ax.plot(
-            group[x_col],
+            group["epoch"],
             group[y_col],
             label=f"{variation.legend_description} ({v_num})",
             alpha=0.7,
@@ -154,7 +169,7 @@ def plot_metric(
     ax.legend(loc=legend_loc, framealpha=0.7)
 
 
-def plot_metrics_grid(
+def plot_grid(
     variations: List[Variation],
     reference: Reference,
     metrics: List[Metric],
@@ -179,11 +194,10 @@ def plot_metrics_grid(
                 ax,
                 metrics_df,
                 reference_df,
-                "epoch",
                 metric.col,
                 metric.title,
-                variation=variation,
-                reference=reference,
+                variation,
+                reference,
                 log_scale=metric.log_scale,
                 legend_loc=metric.legend_loc,
             )
@@ -198,6 +212,85 @@ def load_config_file(config_file: str) -> PlotConfig:
     with open(config_file, "r") as f:
         config_data = json.load(f)
     return PlotConfig.from_dict(config_data)
+
+
+def evaluate_predictions(
+    sir_true: SIRData,
+    predictions: List[Prediction],
+) -> pd.DataFrame:
+    keys = [
+        "$\\text{Variation name}$",
+        "$\\text{RE}_{\\text{SI}}$",
+        "$\\beta_{pred}$",
+        "$\\beta_{true}$",
+        "$\\text{Error}_{\\beta}$",
+        "$\\text{Error}_{\\beta}$ (\\%)",
+    ]
+    evaluations = []
+    for prediction in predictions:
+        sir_pred = prediction.sir_data
+
+        si_re_value = si_re(sir_pred, sir_true)
+        beta_error = abs(sir_pred.beta - sir_true.beta)
+        beta_error_percent = (
+            beta_error / sir_true.beta * 100 if sir_true.beta != 0 else float("inf")
+        )
+
+        values = [
+            f"$\\text{{{prediction.name}}}$",
+            f"${si_re_value:.2e}$",
+            f"${sir_pred.beta:.6f}$",
+            f"${sir_true.beta:.6f}$",
+            f"${beta_error:.2e}$",
+            f"${beta_error_percent:.5f}%$",
+        ]
+
+        evaluations.append(dict(zip(keys, values)))
+
+    return pd.DataFrame(evaluations)
+
+
+def evaluate(evaluated_variations: List[Variation], output_name: str):
+    """
+    Loads models based on variation patterns, evaluates them, and prints a metrics table.
+    """
+
+    predictions = []
+    for variation_pattern in evaluated_variations:
+        model_pattern_path = os.path.join(
+            SAVED_MODELS_DIR, f"*{variation_pattern.file_name}*.ckpt"
+        )
+        matching_files = glob.glob(model_pattern_path)
+
+        if not matching_files:
+            print(
+                f"No models found matching pattern: {variation_pattern.file_name} in {SAVED_MODELS_DIR}"
+            )
+            continue
+
+        for model_path in matching_files:
+            try:
+                model = SIRPINN.load_from_checkpoint(model_path)
+            except Exception as e:
+                print(f"Error loading model {model_path}: {e}")
+                continue
+
+            t_eval, sir_true, _ = generate_sir_data(model.config)
+            sir_pred = SIRData(*model.predict_sir(t_eval).T, beta=model.beta.item())
+
+            v_num = str(os.path.basename(model_path).split("_")[0])
+            predictions.append(
+                Prediction(
+                    name=f"{variation_pattern.legend_description} ({v_num})",
+                    sir_data=sir_pred,
+                )
+            )
+
+    eval_df = evaluate_predictions(sir_true, predictions)
+
+    output_path = os.path.join(FIGURES_DIR, output_name)
+    eval_df.to_markdown(output_path, index=False)
+    print(f"Metrics table saved to {output_path}")
 
 
 def main():
@@ -216,11 +309,22 @@ def main():
     for config_file in config_files:
         print(f"\nProcessing {config_file}...")
         config = load_config_file(config_file)
-        plot_metrics_grid(
+        output_file = os.path.basename(config_file)
+
+        plot_grid(
             variations=config.variations,
             reference=config.reference,
             metrics=config.metrics,
-            output_name=os.path.basename(config_file).replace(".json", ".png"),
+            output_name=output_file.replace(".json", ".png"),
+        )
+
+        if len(config.evaluated) == 0:
+            print(f"No evaluated variations for {output_file}")
+            continue
+
+        evaluate(
+            evaluated_variations=config.evaluated,
+            output_name=output_file.replace(".json", ".md"),
         )
 
 
