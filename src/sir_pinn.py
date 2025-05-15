@@ -103,15 +103,11 @@ from torch.utils.data import Dataset, DataLoader
 
 sns.set_theme(style="darkgrid")
 
-log_dir = "./logs"
-os.makedirs(log_dir, exist_ok=True)
-tensorboard_dir = os.path.join(log_dir, "tensorboard")
-os.makedirs(tensorboard_dir, exist_ok=True)
-csv_dir = os.path.join(log_dir, "csv")
-os.makedirs(csv_dir, exist_ok=True)
-saved_models_dir = "./versions"
-os.makedirs(saved_models_dir, exist_ok=True)
-checkpoints_dir = "./checkpoints"
+LOG_DIR = "./data/logs"
+TENSORBOARD_DIR = os.path.join(LOG_DIR, "tensorboard")
+CSV_DIR = os.path.join(LOG_DIR, "csv")
+SAVED_MODELS_DIR = "./data/versions"
+CHECKPOINTS_DIR = "./data/checkpoints"
 
 # %% [markdown]
 # ## Module's Components
@@ -925,7 +921,7 @@ def train(config: SIRConfig) -> Tuple[str, str]:
         Tuple of the path to the saved model and the version number
     """
     subprocess.Popen(
-        ["tensorboard", "--logdir", tensorboard_dir],
+        ["tensorboard", "--logdir", TENSORBOARD_DIR],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -950,12 +946,12 @@ def train(config: SIRConfig) -> Tuple[str, str]:
 
     model = SIRPINN(config)
 
-    if os.path.exists(checkpoints_dir):
-        shutil.rmtree(checkpoints_dir)
-    os.makedirs(checkpoints_dir, exist_ok=True)
+    if os.path.exists(CHECKPOINTS_DIR):
+        shutil.rmtree(CHECKPOINTS_DIR)
+    os.makedirs(CHECKPOINTS_DIR, exist_ok=True)
 
     checkpoint_callback = ModelCheckpoint(
-        dirpath=checkpoints_dir,
+        dirpath=CHECKPOINTS_DIR,
         filename="{epoch:02d}",
         save_top_k=1,
         monitor="train/total_loss",
@@ -995,18 +991,18 @@ def train(config: SIRConfig) -> Tuple[str, str]:
             ),
         )
 
-    version = f"v{len(os.listdir(saved_models_dir))}"
+    version = f"v{len(os.listdir(SAVED_MODELS_DIR))}"
     if config.run_name is not None:
         version = f"{version}_{config.run_name}"
 
     loggers = [
         TensorBoardLogger(
-            save_dir=tensorboard_dir,
+            save_dir=TENSORBOARD_DIR,
             name=config.study_name,
             version=version,
         ),
         CSVLogger(
-            save_dir=csv_dir,
+            save_dir=CSV_DIR,
             name=config.study_name,
             version=version,
         ),
@@ -1023,11 +1019,11 @@ def train(config: SIRConfig) -> Tuple[str, str]:
     trainer.fit(model, data_loader)
 
     model = SIRPINN.load_from_checkpoint(checkpoint_callback.best_model_path)
-    model_path = saved_models_dir + f"/{version}.ckpt"
+    model_path = SAVED_MODELS_DIR + f"/{version}.ckpt"
     trainer.save_checkpoint(model_path)
 
-    if os.path.exists(checkpoints_dir):
-        shutil.rmtree(checkpoints_dir)
+    if os.path.exists(CHECKPOINTS_DIR):
+        shutil.rmtree(CHECKPOINTS_DIR)
 
     return model_path, version
 
@@ -1039,7 +1035,7 @@ def load(versions: List[int]) -> None:
         versions: List of version numbers to load. Negative numbers count from the end
                  (e.g., -1 for latest, -2 for second latest, etc.)
     """
-    latest_version = len(os.listdir(saved_models_dir)) - 1
+    latest_version = len(os.listdir(SAVED_MODELS_DIR)) - 1
     if latest_version < 0:
         raise FileNotFoundError("No saved models found")
 
@@ -1047,7 +1043,7 @@ def load(versions: List[int]) -> None:
     predictions = []
 
     for version in versions:
-        model_path = saved_models_dir + f"/v{version}_*.ckpt"
+        model_path = SAVED_MODELS_DIR + f"/v{version}_*.ckpt"
         matching_files = glob.glob(model_path)
         if not matching_files:
             raise FileNotFoundError(f"Model version {version} not found")
@@ -1071,6 +1067,11 @@ def load(versions: List[int]) -> None:
 
 
 if __name__ == "__main__":
+    os.makedirs(LOG_DIR, exist_ok=True)
+    os.makedirs(TENSORBOARD_DIR, exist_ok=True)
+    os.makedirs(CSV_DIR, exist_ok=True)
+    os.makedirs(SAVED_MODELS_DIR, exist_ok=True)
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-v",

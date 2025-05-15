@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 
 from sir_pinn import SIRConfig, train
 
+STUDIES_DIR = "./data/studies"
 
 @dataclass
 class ConfigVariation:
@@ -180,10 +181,10 @@ def run_ablation_study(study_name: str):
     if study is None:
         raise ValueError(f"Study {study_name} not found")
 
-    study_dir = f"studies/{study.name}"
+    study_dir = os.path.join(STUDIES_DIR, study.name)
     os.makedirs(study_dir, exist_ok=True)
 
-    with open(f"{study_dir}/config.json", "w") as f:
+    with open(os.path.join(study_dir, "config.json"), "w") as f:
         json.dump(study.to_dict(), f, indent=2)
 
     print(study.description)

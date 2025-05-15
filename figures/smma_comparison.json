@@ -1,0 +1,43 @@
+{
+    "name": "smma_comparison.png",
+    "variations": [
+        {
+            "title": "SMMA stopping with window=25, lookback=25",
+            "file_name": "smma_w25",
+            "legend_description": "SMMA w=25"
+        },
+        {
+            "title": "SMMA stopping with window=50, lookback=50",
+            "file_name": "smma_w50",
+            "legend_description": "SMMA w=50"
+        },
+        {
+            "title": "SMMA stopping with window=75, lookback=75",
+            "file_name": "smma_w75",
+            "legend_description": "SMMA w=75"
+        },
+        {
+            "title": "SMMA stopping with window=100, lookback=100",
+            "file_name": "smma_w100",
+            "legend_description": "SMMA w=100"
+        }
+    ],
+    "reference": {
+        "version": "v1",
+        "legend_description": "No Stopping"
+    },
+    "metrics": [
+        {
+            "col": "train/total_loss_smma",
+            "title": "SMMA Loss",
+            "log_scale": true,
+            "legend_loc": "upper right"
+        },
+        {
+            "col": "train/beta",
+            "title": "Beta",
+            "log_scale": false,
+            "legend_loc": "lower right"
+        }
+    ]
+}
