@@ -1,41 +1,35 @@
-# SIR-PINN
+# SIR-PINN: Physics-Informed Neural Networks for SIR Model Parameter Estimation
 
-A Physics-Informed Neural Network approach for an inverse problem in a SIR
-epidemiological model.
+A Python implementation of Physics-Informed Neural Networks (PINNs) for estimating infection rate parameters in the SIR (Susceptible-Infected-Recovered) epidemiological model.
 
-Written in Pytorch.
+## 🚀 Quick Start
 
-## Getting Started
+This project uses [**uv**](https://docs.astral.sh/uv) for dependency management.
 
-The conda package manager is a prerequisite for this project. If you don't have
-it installed, the [Miniforge](https://github.com/conda-forge/miniforge)
-distribution is recommended.
+### Setup
 
-Create a new conda environment with the required dependencies:
+Install dependencies:
 
 ```bash
-conda env create -f env.yaml
-conda activate pinn
+uv sync
 ```
 
-Run the jupyter notebook:
+Run the project:
 
 ```bash
-jupyter notebook
+uv run src/pinn/sir_pinn.py
 ```
 
-## Managing the Environment
+## 📋 Overview
 
-If the environment already exists and the `env.yaml` file has been
-updated, you can update the environment with:
+This project implements a Physics-Informed Neural Network approach to solve the inverse problem of the SIR epidemiological model. The primary objective is to estimate the infection rate parameter β from observed infection data while respecting the underlying physical laws described by the SIR differential equations.
 
-```bash
-conda env update -f env.yaml --prune
-```
+### Key Features
 
-If you changed the environment and want to update the `env.yaml` file,
-you can do so with:
+- **Physics-Informed Neural Networks**: Combines deep learning with physical constraints
+- **SIR Model Integration**: Respects the underlying differential equations
+- **Comprehensive Ablation Studies**: Systematic evaluation of different configurations
+- **Advanced Stopping Criteria**: SMMA and early stopping implementations
+- **Visualization Tools**: Rich plotting and analysis capabilities
 
-```bash
-conda env export --no-builds | grep -v "^prefix: " > env.yaml
-```
+<!-- ## 🛠️ Usage -->

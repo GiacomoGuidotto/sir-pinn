@@ -3,11 +3,12 @@ import json
 import os
 import shutil
 from dataclasses import dataclass, replace
-from typing import Any, Dict, List
+from typing import Any
 
-from sir_pinn import SIRConfig, train
+from pinn.sir_pinn import SIRConfig, train
 
 STUDIES_DIR = "./data/studies"
+
 
 @dataclass
 class ConfigVariation:
@@ -15,7 +16,7 @@ class ConfigVariation:
 
     name: str
     description: str
-    config_updates: Dict[str, Any]
+    config_updates: dict[str, Any]
 
 
 @dataclass
@@ -25,9 +26,9 @@ class AblationConfig:
     name: str
     description: str
     base_config: SIRConfig
-    variations: List[ConfigVariation]
+    variations: list[ConfigVariation]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "description": self.description,
@@ -43,7 +44,7 @@ class AblationConfig:
         }
 
 
-def create_ablation_configs() -> Dict[str, AblationConfig]:
+def create_ablation_configs() -> dict[str, AblationConfig]:
     """Create configurations for the ablation study."""
 
     stopping_base_config = SIRConfig(
@@ -63,7 +64,9 @@ def create_ablation_configs() -> Dict[str, AblationConfig]:
             *[
                 ConfigVariation(
                     name=f"smma_w{window}",
-                    description=f"SMMA stopping with window={window}, lookback={window}",
+                    description=(
+                        f"SMMA stopping with window={window}, lookback={window}"
+                    ),
                     config_updates={
                         "smma_stopping_enabled": True,
                         "smma_window": window,
@@ -123,7 +126,9 @@ def create_ablation_configs() -> Dict[str, AblationConfig]:
         variations=[
             ConfigVariation(
                 name=f"arch_l{num_layers}_n{neurons}",
-                description=f"Architecture: {num_layers} layers, {neurons} neurons each",
+                description=(
+                    f"Architecture: {num_layers} layers, {neurons} neurons each"
+                ),
                 config_updates={
                     "hidden_layers": [neurons] * num_layers,
                 },
@@ -154,7 +159,11 @@ def create_ablation_configs() -> Dict[str, AblationConfig]:
         variations=[
             ConfigVariation(
                 name=f"batch_{size}_l{num_layers}_n{neurons}",
-                description=f"Architecture: {num_layers} layers, {neurons} neurons each. Training with batch size {size}",
+                description=(
+                    f"Architecture: {num_layers} layers, "
+                    f"{neurons} neurons each. "
+                    f"Training with batch size {size}"
+                ),
                 config_updates={
                     "batch_size": size,
                     "hidden_layers": [neurons] * num_layers,

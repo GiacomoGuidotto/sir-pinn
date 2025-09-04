@@ -1,4 +1,17 @@
-.idea
+# os
 .vscode
 **/.DS_Store
+
+# generated files
 src/__pycache__
+
+# python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# virtual environments
+.venv

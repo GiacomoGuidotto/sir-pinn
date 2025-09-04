@@ -75,19 +75,17 @@
 # std
 import os
 import shutil
-import subprocess
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import Optional
 
 # third-party
 import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
 import numpy as np
 import seaborn as sns
 import torch
 import torch.nn as nn
 from lightning import Callback
-from lightning.pytorch import Trainer, LightningModule
+from lightning.pytorch import LightningModule, Trainer
 from lightning.pytorch.callbacks import (
     EarlyStopping,
     LearningRateMonitor,
@@ -95,8 +93,9 @@ from lightning.pytorch.callbacks import (
     TQDMProgressBar,
 )
 from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
+from matplotlib.figure import Figure
 from scipy.integrate import odeint
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 sns.set_theme(style="darkgrid")
 
@@ -202,7 +201,7 @@ def si_re(pred: SIRData, true: SIRData) -> float:
 def plot_sir_dynamics(
     t: np.ndarray,
     sir_true: SIRData,
-    predictions: List[Tuple[str, str, SIRData]],
+    predictions: list[tuple[str, str, SIRData]],
 ) -> Figure:
     """Create visualization of SIR dynamics.
 
@@ -267,14 +266,14 @@ class SIRConfig:
     initial_beta: float = 0.5
 
     # Dataset parameters
-    time_domain: Tuple[int, int] = (0, 90)
+    time_domain: tuple[int, int] = (0, 90)
     collocation_points: int = 6000
 
     # Initial conditions (I0, R0)
-    initial_conditions: List[float] = field(default_factory=lambda: [1.0, 0.0])
+    initial_conditions: list[float] = field(default_factory=lambda: [1.0, 0.0])
 
     # Network architecture
-    hidden_layers: List[int] = field(default_factory=lambda: 4 * [50])
+    hidden_layers: list[int] = field(default_factory=lambda: 4 * [50])
     activation: str = "tanh"
     output_activation: str = "square"
 
@@ -330,7 +329,7 @@ class SIRConfig:
 # evaluating the model's performance.
 
 
-def generate_sir_data(config: SIRConfig) -> Tuple[np.ndarray, SIRData, np.ndarray]:
+def generate_sir_data(config: SIRConfig) -> tuple[np.ndarray, SIRData, np.ndarray]:
     """Generate synthetic SIR data using ODE integration."""
 
     def sir(x, _, d, b):
@@ -391,7 +390,7 @@ class SIRDataset(Dataset):
         self,
         t_obs: np.ndarray,
         i_obs: np.ndarray,
-        time_domain: Tuple[float, float],
+        time_domain: tuple[float, float],
         n_collocation: int,
         N: float,
     ):
@@ -505,7 +504,7 @@ class SIRPINN(LightningModule):
         self.loss_fn = nn.MSELoss()
 
         self.t0_tensor = torch.zeros(1, 1, device=self.device, dtype=torch.float32)
-        i0, r0 = map(lambda x: x / self.config.N, self.config.initial_conditions)
+        i0, r0 = (x / self.config.N for x in self.config.initial_conditions)
         ic = [self.N - i0 - r0, i0, r0]
         self.ic_true = torch.tensor(ic, dtype=torch.float32).reshape(1, 3)
 
@@ -533,7 +532,7 @@ class SIRPINN(LightningModule):
     @torch.inference_mode(False)
     def _compute_ode_residuals(
         self, t_tensor: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Compute residuals of the SIR ODEs using automatic differentiation.
 
@@ -621,7 +620,10 @@ class SIRPINN(LightningModule):
 
     @torch.no_grad()
     def on_train_epoch_end(self):
-        """At the end of each epoch: calculate and log SMMA of total loss and SI relative error."""
+        """
+        At the end of each epoch: calculate and log SMMA of total loss and
+        SI relative error.
+        """
         loss = self.trainer.callback_metrics.get("train/total_loss")
         if loss is not None:
             loss = loss.item()
@@ -702,8 +704,9 @@ class ProgressBar(TQDMProgressBar):
 class SMMAStopping(Callback):
     """Early stopping callback based on the Smoothed Moving Average (SMMA) of the loss.
 
-    This callback monitors the improvement in the SMMA of the total loss over a specified
-    lookback period. Training is stopped if the improvement falls below a threshold.
+    This callback monitors the improvement in the SMMA of the total loss over a
+    specified lookback period. Training is stopped if the improvement falls
+    below a threshold.
     """
 
     def __init__(self, threshold: float, lookback: int):
@@ -743,7 +746,9 @@ class SMMAStopping(Callback):
         if 0 < improvement_percentage < self.threshold:
             trainer.should_stop = True
             print(
-                f"\nStopping training: SMMA improvement over {self.lookback} epochs ({improvement_percentage:.2%}) below threshold ({self.threshold:.2%})"
+                f"\nStopping training: SMMA improvement over {self.lookback} "
+                f"epochs ({improvement_percentage:.2%}) below threshold "
+                f"({self.threshold:.2%})"
             )
 
         module.log("internal/smma_improvement", improvement_percentage)
@@ -821,7 +826,7 @@ class SIREvaluation(Callback):
 
 
 # %%
-def train(config: SIRConfig) -> Tuple[str, str]:
+def train(config: SIRConfig) -> tuple[str, str]:
     """Train a new SIR PINN model with the given configuration.
 
     Args:
@@ -834,11 +839,6 @@ def train(config: SIRConfig) -> Tuple[str, str]:
     os.makedirs(TENSORBOARD_DIR, exist_ok=True)
     os.makedirs(CSV_DIR, exist_ok=True)
     os.makedirs(SAVED_MODELS_DIR, exist_ok=True)
-    subprocess.Popen(
-        ["tensorboard", "--logdir", TENSORBOARD_DIR],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
 
     t, sir_true, i_obs = generate_sir_data(config)
 

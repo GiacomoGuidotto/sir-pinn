@@ -1,22 +1,21 @@
 import glob
-import os
 import json
+import os
 from dataclasses import dataclass
-from typing import List, Tuple, Dict, Optional
+from typing import Optional
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 
-from sir_pinn import (
+from pinn.sir_pinn import (
+    LOG_DIR,
+    SAVED_MODELS_DIR,
     SIRPINN,
     SIRData,
     generate_sir_data,
     si_re,
-    SAVED_MODELS_DIR,
-    LOG_DIR,
 )
-
 
 FIGURES_DIR = "./figures"
 
@@ -44,13 +43,13 @@ class Metric:
 
 @dataclass
 class PlotConfig:
-    variations: List[Variation]
+    variations: list[Variation]
     reference: Reference
-    metrics: List[Metric]
-    evaluated: List[Variation]
+    metrics: list[Metric]
+    evaluated: list[Variation]
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "PlotConfig":
+    def from_dict(cls, data: dict) -> "PlotConfig":
         """Create a PlotConfig from a dictionary."""
         return cls(
             variations=[Variation(**v) for v in data["variations"]],
@@ -66,7 +65,7 @@ class Prediction:
     sir_data: SIRData
 
 
-def find_folders(pattern: str) -> List[str]:
+def find_folders(pattern: str) -> list[str]:
     folders = glob.glob(pattern, recursive=True)
     if not folders:
         raise ValueError(f"No folders found matching pattern: {pattern}")
@@ -86,7 +85,7 @@ def load_dataframe(folder: str) -> Optional[pd.DataFrame]:
 
 def load_metrics(
     variation: Variation, reference: Reference
-) -> Tuple[pd.DataFrame, pd.DataFrame, str]:
+) -> tuple[pd.DataFrame, pd.DataFrame, str]:
     pattern = os.path.join(LOG_DIR, "csv", "**", f"*{variation.file_name}*")
     folders = find_folders(pattern)
 
@@ -99,12 +98,13 @@ def load_metrics(
 
     variation_names = [os.path.basename(folder) for folder in folders]
     print(
-        f"Plot \"{variation.file_name}\", reference {reference.version}: plotting {', '.join(variation_names)}..."
+        f'Plot "{variation.file_name}", reference {reference.version}: '
+        f"plotting {', '.join(variation_names)}..."
     )
 
     ref_df = load_dataframe(ref_folders[0])
     if ref_df is None:
-        raise ValueError(f"Reference metrics file not found")
+        raise ValueError("Reference metrics file not found")
 
     ref_full_name = os.path.basename(ref_folders[0])
     ref_df["version"] = "reference"
@@ -170,9 +170,9 @@ def plot_metric(
 
 
 def plot_grid(
-    variations: List[Variation],
+    variations: list[Variation],
     reference: Reference,
-    metrics: List[Metric],
+    metrics: list[Metric],
     output_name: str,
 ):
     n_rows = len(variations)
@@ -209,14 +209,14 @@ def plot_grid(
 
 def load_config_file(config_file: str) -> PlotConfig:
     """Load a JSON configuration file and convert to PlotConfig."""
-    with open(config_file, "r") as f:
+    with open(config_file) as f:
         config_data = json.load(f)
     return PlotConfig.from_dict(config_data)
 
 
 def evaluate_predictions(
     sir_true: SIRData,
-    predictions: List[Prediction],
+    predictions: list[Prediction],
 ) -> pd.DataFrame:
     keys = [
         "$\\text{Variation name}$",
@@ -250,9 +250,9 @@ def evaluate_predictions(
     return pd.DataFrame(evaluations)
 
 
-def evaluate(evaluated_variations: List[Variation], output_name: str):
+def evaluate(evaluated_variations: list[Variation], output_name: str):
     """
-    Loads models based on variation patterns, evaluates them, and prints a metrics table.
+    Loads models based on variation patterns, evaluates them, and prints a metrics table
     """
 
     predictions = []
@@ -264,7 +264,8 @@ def evaluate(evaluated_variations: List[Variation], output_name: str):
 
         if not matching_files:
             print(
-                f"No models found matching pattern: {variation_pattern.file_name} in {SAVED_MODELS_DIR}"
+                f"No models found matching pattern: "
+                f"{variation_pattern.file_name} in {SAVED_MODELS_DIR}"
             )
             continue
 
